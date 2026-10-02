@@ -1,0 +1,846 @@
+OAKSCRIPT 0.3.2 - SYNTAX AND BUILT-IN REFERENCE
+============================================
+
+This describes the implemented Windows x64 runner, not planned features.
+OakScript's short name is Oak. Source files end in .oak.
+Names and imported exports are case-sensitive.
+Square brackets in API signatures mean optional arguments; do not type them.
+Examples marked BEGIN EXAMPLE / END EXAMPLE are complete source files.
+Save each example using the indicated filename. Graphics examples that mention
+assets require those assets beside the example, as described in section 13.
+
+1. RUNNING FILES
+---------------
+From PowerShell, with oakscript.exe in the current directory:
+    .\oakscript.exe C:/path/to/file.oak
+    .\oakscript.exe "C:/path with spaces/file.oak" first "second argument"
+
+If the EXE's directory is on PATH:
+    oakscript C:/path/to/file.oak
+
+Runner options precede the source filename. Arguments following the filename
+belong to the script, even if they begin with --.
+
+    oakscript --help                  oakscript -h
+    oakscript --version               oakscript -v
+    oakscript --check program.oak      oakscript check program.oak
+    oakscript run program.oak
+    oakscript --bytecode program.oak
+    oakscript --no-opt program.oak
+    oakscript --engine bytecode program.oak
+    oakscript --engine ast program.oak
+    oakscript --profile program.oak
+    oakscript --frames 4 game.oak
+    oakscript --frames 4 --capture frame.png game.oak
+    oakscript -- program.oak
+
+--check checks the entry file and every reachable import without execution.
+--bytecode prints compiled bytecode without execution.
+Bytecode with optimization is the default; ast is the reference interpreter.
+--profile reports checking/execution times to stderr.
+--frames closes a graphical program after a positive number of frames.
+--capture requires a .png output; without --frames it captures one frame.
+Capture output paths resolve from the terminal's working directory.
+Console scripts do not initialize graphics. Graphics need a Vulkan GPU driver.
+
+Exit codes: 0 success; 1 source/resource/runtime error; 2 CLI usage error;
+130 interrupted. exit(code) or an integer main return can supply another code.
+
+2. COMMENTS, STATEMENTS, NAMES AND LITERALS
+-----------------------------------------
+    /# A block comment. It may span lines and contain /# nested comments. #/ #/
+    // A line comment is also accepted.
+
+Statements end at a newline or semicolon. Indentation is cosmetic.
+All statement bodies use :( ... ), never braces or indentation alone.
+Newlines are accepted inside calls, lists, tuples and parameter lists.
+Commas separate their items, and trailing commas are accepted.
+There is no general expression line-continuation character.
+
+Identifiers start with a letter or underscore, then letters, digits or _.
+Numeric literals are decimal: 12, -4, 1.5, .25, 2e3, 1.2e-4.
+Hexadecimal/binary literals and numeric separator underscores are unsupported.
+true, false and null are literals. null has no general nullable type syntax.
+Use double-quoted or single-quoted strings:
+    "hello"    'hello'    "a\nb"    "tab\tvalue"    "\u0041"
+Escapes: \n \r \t \\ \" \' and \u followed by four hex digits.
+String literals cannot contain a physical newline. Concatenate with +.
+There are no interpolation, raw-string or triple-quoted-string forms.
+Prefer forward slashes in Windows paths, or escape each backslash.
+
+BEGIN EXAMPLE: hello.oak
+/# Comments can nest: /# inner #/ outer. #/
+string greeting = "Hello, Oak!"
+print(greeting)
+println("Arguments:", args)
+print("Count:", argc, "Source:", script_path)
+string escaped = "Line one\nLine two\t\u0041"
+print(escaped)
+int first = 2; int second = 3
+assert(first + second == 5)
+END EXAMPLE
+
+3. VARIABLES, ASSIGNMENTS AND SCOPES
+----------------------------------
+    TYPE name = expression           typed declaration
+    name = expression                inferred declaration, or update
+    name += value                    also -= *= /= %=
+    object.attribute = value
+    values[index] = value            list element assignment
+
+Declarations require an initial value. An inferred variable keeps the type
+of its first runtime value. Assignments update the nearest existing binding;
+if there is no binding they create one in the current scope.
+int values may initialize float variables. Conversions otherwise are explicit.
+Only lists support index assignment. Tuples and strings are immutable.
+Blocks, loops and functions create lexical scopes; local declarations do not
+leak into the parent block. Functions can update existing outer variables.
+Lists, records and graphics resources share references when assigned.
+Vectors and matrices copy their components when bound to typed variables.
+readonly is supported for record/schema fields, not general variables.
+
+4. TYPES, CONSTRUCTORS AND COLLECTIONS
+-------------------------------------
+Built-in declaration types:
+    bool int float string list
+    vec2 vec3 vec4
+    ivec2 ivec3 ivec4
+    uvec2 uvec3 uvec4
+    color quat mat2 mat3 mat4
+    texture model mesh material shader camera vertex font
+void is a function return annotation. Resource values are created/loaded by
+their dedicated API functions; type annotations do not allocate resources.
+
+int: signed 64-bit. float: finite 64-bit floating point.
+vecN: N floating components. ivecN: signed 32-bit integer components.
+uvecN: unsigned 32-bit integer components.
+color: 3 or 4 integer channels in 0..255; omitted alpha becomes 255.
+quat: four floating components ordered x,y,z,w. It is a value type; no
+quaternion-specific rotation/conversion functions are currently exposed.
+matN: N by N matrix, row-major storage, column-vector multiplication.
+
+    vec3 p = (1, 2, 3)               tuple-to-type initialization
+    p = vec3(4, 5, 6)                explicit constructor
+    color c = color(255, 100, 20, 128)
+    mat2 m = ((1, 0), (0, 1))        readable row tuples
+    mat2 flat = (1, 0, 0, 1)         flat row-major tuple
+    mat2 explicit = mat2(1, 0, 0, 1)
+
+    []                              empty mutable list
+    [1, "Oak", true]                heterogeneous list
+    ()                              empty immutable tuple
+    (1,)                            one-item tuple
+    (1, 2, 3)                       tuple
+    (1 + 2)                         grouping, not a tuple
+
+Lists, tuples and strings support zero-based indexing and negative indexing
+from the end. No slicing syntax is implemented.
+    values[0]   values[-1]   values.length   len(values)
+Vectors expose writable .x/.y/.z/.w where the dimension permits them.
+Colors expose writable .r/.g/.b/.a. There are no multi-component swizzles.
+Vector components are not accessed with [] and vectors have no .length
+attribute; use len(vector) for component count, length(vector) for magnitude.
+String indexing/length uses UTF-16 code units, not grapheme clusters.
+
+Conversions:
+    int(value)       int, finite float (truncated), bool, decimal string
+    float(value)     int, float, numeric string
+    string(value)    formatted representation
+    bool(value)      validates an existing bool; no implicit truthiness
+    list(value)      copy a list, copy tuple elements, or split string units
+
+BEGIN EXAMPLE: collections.oak
+list values = [10, "Oak", true]
+append(values, 40)
+values[0] = 20
+assert(values[-1] == 40)
+assert(pop(values) == 40)
+assert(len(values) == values.length)
+tuple_value = (1, 2, 3)
+assert(tuple_value[-1] == 3)
+list converted = list(tuple_value)
+assert(converted[0] == 1)
+assert(int("12") == 12)
+assert(int(2.9) == 2)
+assert(float("2.5") == 2.5)
+assert(bool(true))
+assert(string(12) == "12")
+vec3 original = (1, 2, 3)
+vec3 copied = original
+copied.x = 9
+assert(original.x == 1)
+color red = (255, 0, 0)
+assert(red.a == 255)
+ivec2 signed = (-1, 2)
+uvec3 unsigned = (1, 2, 3)
+quat orientation = (0, 0, 0, 1)
+print(values, signed, unsigned, orientation)
+END EXAMPLE
+
+5. OPERATORS
+------------
+In order from lowest to highest binary precedence:
+    or ||
+    and &&
+    == !=
+    < > <= >=
+    + -
+    * / %
+    **
+Exponentiation is right-associative: 2 ** 3 ** 2 means 2 ** (3 ** 2).
+Unary operators: + - not !. Unary parsing includes exponentiation, so
+-2 ** 2 means -(2 ** 2). Use parentheses for explicit grouping.
+Boolean operators require bool and short-circuit. Conditions require bool.
+/ always returns float. ** returns float. Integer + - * % remain int when
+both operands are int. Overflow, division by zero and non-finite results fail.
+String + concatenates strings; list + creates a concatenated list.
+Numeric comparisons, ordinal string comparisons and equality are supported.
+Vector arithmetic operates on components. Vector-left/scalar-right arithmetic
+is accepted; scalar-left/vector-right supports multiplication. Integer-vector
+operations must produce integral components within the component range.
+Matrix multiplication supports same-size matrices and matching float vectors.
+No bitwise operators, ++/--, ternary, in-membership expression, or user-defined
+operator overloads are implemented. in is used in for statements only.
+
+6. CONDITIONS, LOOPS AND FUNCTIONS
+---------------------------------
+    if CONDITION:(
+        STATEMENTS
+    )
+    elif OTHER_CONDITION:(
+        STATEMENTS
+    )
+    else:(
+        STATEMENTS
+    )
+
+    while CONDITION:(STATEMENTS)
+    for item in COLLECTION:(STATEMENTS)
+    break                            exit the current loop
+    continue                         skip to the next iteration
+
+for accepts lists, tuples or strings. A list iteration uses a snapshot of its
+elements. range(start, stop) includes start and excludes stop.
+
+BEGIN EXAMPLE: control.oak
+int total = 0
+for n in range(1, 6):(
+    total += n
+)
+assert(total == 15)
+if total < 10:(
+    print("small")
+)
+elif total == 15:(
+    print("fifteen")
+)
+else:(
+    print("other")
+)
+int count = 0
+while count < 5:(
+    count += 1
+    if count == 2:(continue)
+    if count == 4:(break)
+)
+assert(count == 4)
+assert(range(6, 1, -1)[-1] == 2)
+END EXAMPLE
+
+Function forms:
+    def name(a, b):(STATEMENTS)
+    def name(int a, float b) -> float:(STATEMENTS)
+    def name() -> void:(STATEMENTS)
+    return expression
+    return
+
+Typed and untyped parameters may be mixed. Arguments are positional and their
+count must match exactly. There are no named/default/variadic parameters.
+Return annotations are optional; declared return types are enforced.
+Functions are available throughout their containing block, support recursion
+and capture lexical scopes. They can be assigned/imported as values.
+No lambda, async/await, generator, yield, exception-catching or decorator
+syntax is implemented. The maximum nested function-call depth is 256.
+
+Optional entry points:
+    def main():(...)
+    def main(list arguments) -> int:(...)
+    def draw():(...)
+
+The runner executes top-level statements, then the entry file's own main, then
+the graphics frame loop if a window exists. main returns int or no value.
+An imported module's main is not invoked automatically.
+draw takes no arguments and runs once per frame. An imported draw may be used.
+Built-in globals: args (list of entry arguments), argc (int), script_path
+(current module path), pi (float), delta_time (frame seconds, capped at 0.25),
+and shared render-state objects blend, depth, cull.
+
+BEGIN EXAMPLE: functions.oak
+def add(int a, int b) -> int:(return a + b)
+def factorial(int n) -> int:(
+    if n <= 1:(return 1)
+    return n * factorial(n - 1)
+)
+int calls = 0
+def count_call() -> void:(calls += 1)
+def main(list arguments) -> int:(
+    count_call()
+    assert(calls == 1)
+    assert(factorial(5) == 120)
+    operation = add
+    print(operation(2, 3), arguments)
+    return 0
+)
+END EXAMPLE
+
+7. USER TYPES, SCHEMAS AND OPTIONS
+---------------------------------
+    type Name:(TYPE field; TYPE other = DEFAULT)
+    schema Name:(TYPE field = DEFAULT)
+    type Name from SchemaName:(TYPE additional = DEFAULT)
+    schema Name from BaseSchema:(TYPE additional = DEFAULT)
+    readonly TYPE field = DEFAULT
+
+Newlines or semicolons separate fields. Fields are ordered and typed.
+Types are nominal: separate declarations define distinct types.
+Schemas supply reusable fields and are also constructible as records.
+from in a type/schema declaration requires a schema, not class inheritance.
+Duplicate field names fail. readonly fields reject writes after construction.
+Constructors accept positional arguments or one tuple. Omitted trailing fields
+must have defaults. Default expressions run for each instance in the declaration
+scope; they cannot refer to the instance's fields. Mutable defaults are fresh.
+An existing instance passed to its own constructor is returned unchanged.
+Records share references. No methods, generics or record operator overloads.
+
+    options Name:(first;second)
+    options Name:(first, second)
+    extend options Name:(third)
+    Name value = <first>
+
+Newlines, commas or semicolons can separate option names. Duplicate values fail.
+Option sets are nominal, importable and extensible. Extensions apply during
+static compilation even if their containing block does not execute; the set
+must be declared/imported before extension. Options require a declared set or
+an attribute context: untyped value = <first> is not supported.
+GPU attributes have their own fixed allowed option values (section 12).
+
+BEGIN EXAMPLE: records.oak
+options Status:(idle;working)
+extend options Status:(done)
+schema Named:(string name = "Oak")
+type Point:(float x; float y)
+type Document from Named:(
+    readonly int id = 1
+    Point position = (0, 0)
+    Status status = <idle>
+    list notes = []
+)
+Document doc = Document()
+Document other = Document()
+doc.position = (3, 4)
+doc.status = <done>
+append(doc.notes, "First note")
+assert(len(other.notes) == 0)
+assert(doc.position.x == 3)
+Point p = (1, 2)
+Point q = Point(3, 4)
+print(doc, p, q)
+END EXAMPLE
+
+8. IMPORTS, ALIASES AND MODULE INITIALIZATION
+-------------------------------------------
+    from library import *
+    from library import single
+    from library import first;second;third
+    from "file_next_to_this_one.oak" import *
+    from "./sub/library.oak" import value;function_name
+    from "../library.oak" import *
+    from "/relative/path/to/library.oak" import *
+    from "C:/pc/path/to/library.oak" import *
+    from "//server/share/library.oak" import *
+    from "pkg:library" import *
+    from library import value as local_value;add as sum;Point as P
+    from library import * as lib
+
+Bare names first resolve NAME.oak beside the importing file, then a package
+in the entry project's nearest oak.lock.json. Quoted extensionless paths also
+gain .oak. A SINGLE leading / in an IMPORT path means importer-relative, not
+the current drive root. Drive-qualified and UNC paths are absolute.
+This special leading-/ rule is for imports; it is not a general file-I/O rule.
+Imports and relative assets do not depend on the terminal's current directory.
+pkg: explicitly selects installed package resolution; no network request is
+made by an import. Install dependencies before running the program.
+
+Semicolons separate selected exports, not commas. End a selected import with
+a physical newline, closing body or end of file. Do not place an unrelated
+statement after its semicolon on the same physical line.
+* selects top-level module bindings, including re-exports, but not built-ins,
+implicit runtime globals, __init__ or __dispose__ hooks.
+Missing/duplicate/conflicting selections and circular dependencies fail.
+
+Modules have isolated lexical scopes and initialize once, at first executed
+import. Equivalent normalized paths share the cache. Imported bindings are
+live: updating an imported variable or calling a library function that changes
+it is visible to all importers. Imported functions keep the library's scope.
+Imports in functions/blocks remain in that scope. All reachable imports are
+checked before execution, including imports in unexecuted branches/functions.
+An aliased namespace exposes attributes, e.g. lib.value or lib.Point(1, 2).
+Type aliases such as P work in declarations/annotations. lib.Point p = ...
+is not an accepted qualified type declaration; import Point as P instead.
+
+Module hooks:
+    def __init__():(...)
+    def __dispose__():(...)
+Own __init__ runs after a module's top-level statements; imports complete after
+successful initialization. Own __dispose__ runs once in reverse successful
+initialization order when the runner exits, including after program errors.
+Hooks take no arguments. Checks, bytecode dumps and editor analysis never run
+hooks. Re-exporting a hook does not create a hook in the importing module.
+
+BEGIN EXAMPLE: library.oak
+int value = 10
+int starts = 0
+type Point:(float x; float y)
+def add(int a, int b) -> int:(return a + b)
+def __init__():(starts += 1)
+def __dispose__():(print("library disposed"))
+END EXAMPLE
+
+BEGIN EXAMPLE: imports.oak
+from library import value;add as sum;Point as P;starts
+from "./library.oak" import * as lib
+P position = (1, 2)
+assert(sum(2, 3) == 5)
+assert(starts == 1)
+value = 20
+assert(lib.value == 20)
+assert(lib.Point(3, 4).y == 4)
+print(position)
+END EXAMPLE
+
+9. STANDARD LIBRARY - EVERY BUILT-IN
+----------------------------------
+Signature                                    Result / behavior
+
+print(...), println(...)                     void; space-separated line
+input([prompt])                              string; read a console line
+len(value)                                   int; string/list/tuple/vector size
+type_of(value)                               string; runtime type name
+range(stop)                                  list; 0 to stop, exclusive
+range(start, stop[, step])                    list; signed integer step
+append(list, value)                           void; append one element
+pop(list[, index])                            removed value; default index -1
+assert(bool_condition[, message])             void; fail when false
+exit([int_code])                              stop program; default 0
+sleep(milliseconds)                          void; nonnegative duration
+time()                                       float; Unix time in seconds
+read_text(path)                              string; read a text file
+write_text(path, text)                        void; overwrite UTF-8 text file
+file_exists(path)                            bool; file exists
+abs(number)                                  int or float
+min(first, second, ...)                       int if all int, otherwise float
+max(first, second, ...)                       int if all int, otherwise float
+sqrt(number)                                 float
+sin(radians), cos(radians), tan(radians)      float
+floor(number), ceil(number), round(number)    float
+pow(base, exponent)                          float
+clamp(number, minimum, maximum)               float
+random()                                     float in [0, 1)
+dot(vec, vec)                                float; matching vec2/3/4 types
+cross(vec3, vec3)                            vec3
+length(vec)                                  float; vec2/3/4 magnitude
+normalize(vec)                               same vec type; rejects zero vector
+transpose(matrix)                            same matrix type
+translate(vec3_offset)                       mat4
+rotate(vec3_euler_degrees)                    mat4
+scale(vec3_factors)                           mat4
+
+All graphics/text/input built-ins are listed in sections 11 and 12.
+Type constructor/conversion forms are listed in sections 4 and 7.
+No implicit degree conversion for sin/cos/tan: use degrees * pi / 180.
+round uses ties-to-even rounding. range rejects zero step and materializes
+at most 10 million elements; use while for larger iterations.
+File I/O in an imported function resolves relative to its defining module.
+write_text does not automatically create parent directories.
+
+BEGIN EXAMPLE: files.oak
+write_text("example-output.txt", "Saved by Oak\n")
+assert(file_exists("example-output.txt"))
+assert(read_text("example-output.txt") == "Saved by Oak\n")
+print(type_of(time()), clamp(15, 0, 10), random())
+END EXAMPLE
+
+10. MATRIX AND ROTATION CONVENTIONS
+----------------------------------
+matrix * vector applies the matrix to a column vector.
+A * B * vector applies B first, then A.
+Rotation helpers and resource rotations use degrees; trigonometry uses radians.
+rotate((pitch, yaw, roll)) constructs the Euler transform using yaw/pitch/roll.
+Camera forward is local +Z, up is +Y; positive camera pitch looks downward.
+Graphics convert values to 32-bit floating point for the GPU.
+
+BEGIN EXAMPLE: math.oak
+mat3 identity = (
+    (1, 0, 0),
+    (0, 1, 0),
+    (0, 0, 1)
+)
+assert(identity * vec3(1, 2, 3) == vec3(1, 2, 3))
+mat4 transform = translate((10, 0, 0)) * scale((2, 2, 2))
+vec4 result = transform * vec4(1, 2, 3, 1)
+assert(result == vec4(12, 4, 6, 1))
+assert(dot(vec3(1, 2, 3), vec3(1, 2, 3)) == 14)
+assert(cross(vec3(1, 0, 0), vec3(0, 1, 0)) == vec3(0, 0, 1))
+assert(length(vec3(3, 4, 0)) == 5)
+assert(abs(sin(90 * pi / 180) - 1) < 0.000001)
+print(result, rotate((0, 45, 0)), normalize(vec3(3, 0, 0)))
+END EXAMPLE
+
+11. WINDOWS, RENDERING, TEXT AND INPUT
+------------------------------------
+    window TITLE_EXPRESSION WIDTH_EXPRESSION HEIGHT_EXPRESSION
+    window "My game" 800 600
+
+Only one window is supported per program. Width/height must be integers in
+1..16384. Create a window before rendering/input calls. The runner owns the event/frame
+loop: put updates and drawing in draw(), not a manual infinite window loop.
+Top-level rendering commands are replayed before each draw invocation.
+Closing the window ends the frame loop. 2D pixel origin is top-left; X right,
+Y down. Depth/culling apply to 3D; 2D follows draw order.
+
+Rendering and resources:
+    clear(color)                                  clear frame
+    load_texture(path)                            texture
+    texture_blit(tex, x, y)
+    texture_blit(tex, x, y, width, height[, rotation[, opacity[, tint]]])
+    texture_blit_region(tex, x, y, width, height,
+                        source_x, source_y, source_width, source_height[, tint])
+    fill_poly(points, color_or_texture)
+    vertex(position[, uv[, normal[, color]]])      vertex resource
+    create_mesh(vertices[, triangle_indices])      mesh
+    draw_mesh(mesh[, position])
+    load_model(path)                               model
+    draw_model(model[, position])
+    create_camera()                               camera
+    set_camera(camera)
+    create_material()                             material
+    load_shader(base_path)                        shader
+    use_shader(shader)
+    reset_shader()                                restore default shader
+    close_window()
+
+texture_blit rotation is degrees around the destination center; default 0.
+Opacity defaults to 1. Provide both width and height when scaling.
+texture_blit_region source rectangle is in source-image pixels.
+fill_poly takes a list of vec2/2-item tuples for 2D, or explicit vec3 or vertex
+values for 3D. A raw tuple does not select 3D mode: use vec3(x,y,z) or
+vertex((x,y,z)) for each 3D point. Simple convex/concave polygons are supported;
+3D polygons must be planar. Holes and self-intersections are unsupported. There is no
+draw_poly or built-in cube function; use fill_poly or create_mesh.
+Use vertex(...) to provide explicit UVs and colors. UVs are texture coordinates
+such as (0,0)..(1,1). Native geometry stores position, UV and color; normal
+attributes are accepted but are not a separate built-in shader vertex channel.
+Mesh indices are zero-based triples. Without indices, each three vertices
+form a triangle. For model/mesh rotation, assign .rotation = (pitch,yaw,roll).
+An optional draw position overrides the resource's position for that call.
+
+Text:
+    load_font(path[, pixel_size])                  font; default size 32
+    measure_text(text, font_or_path[, pixel_size])  vec2(width,height)
+    draw_text(text, x, y, color, font_or_path[, pixel_size])
+    draw_text2(text, x, y, color, font_or_path[, pixel_size])
+    draw_text3(text, position, facing_target, color, font_or_path
+               [, pixel_size[, world_scale]])
+
+draw_text is an alias for draw_text2. Fonts must be supported .ttf/.otf files.
+World scale defaults to 0.01 world units per pixel. draw_text3 faces its target,
+or the camera when font.billboard is true. See font properties in section 12.
+Text supports Unicode scalar glyphs and kerning. Missing glyphs fail; there
+is no font fallback, complex-script shaping, bidi layout, web font or collection
+support. Wrapping currently uses character boundaries.
+
+Input and window queries (all require a window):
+    key_down(name)                                bool; currently held
+    key_pressed(name)                             bool; pressed this frame
+    key_released(name)                            bool; released this frame
+    mouse_down(name), mouse_pressed(name), mouse_released(name)  bool
+    mouse_position()                              vec2; window pixels
+    mouse_delta()                                 vec2; relative frame motion
+    mouse_wheel()                                 float; frame wheel delta
+    lock_mouse(bool)                              hide/capture or release cursor
+    mouse_locked()                                bool
+    window_focused()                              bool
+    window_size()                                 vec2(width,height)
+
+Key examples: "A".."Z", "Number0".."Number9", "Space", "Enter", "Escape",
+"Left", "Right", "Up", "Down", "LShift"/"ShiftLeft", "RShift"/"ShiftRight".
+Key names are case-insensitive. Mouse names: "Left", "Middle", "Right",
+"Button1".."Button9". Press/release queries include complete between-frame
+taps; auto-repeat is not a new press while held. Queries do not consume edges.
+Focus loss releases relative capture and clears held input automatically.
+
+BEGIN EXAMPLE: graphics2d.oak
+window "Oak - WASD square" 800 600
+vec2 player = (350, 250)
+def draw():(
+    float speed = 200 * delta_time
+    if key_down("LShift"):(speed *= 0.5)
+    if key_down("A"):(player.x -= speed)
+    if key_down("D"):(player.x += speed)
+    if key_down("W"):(player.y -= speed)
+    if key_down("S"):(player.y += speed)
+    if key_pressed("Space"):(player = (350, 250))
+    clear((20, 28, 38))
+    fill_poly([
+        (player.x, player.y), (player.x + 48, player.y),
+        (player.x + 48, player.y + 48), (player.x, player.y + 48)
+    ], (90, 210, 120))
+    if key_pressed("Escape"):(close_window())
+)
+END EXAMPLE
+
+BEGIN EXAMPLE: graphics3d.oak
+window "Oak - rotating triangle" 800 600
+camera view = create_camera()
+view.position = (0, 0, -5)
+mesh triangle = create_mesh([
+    vertex((-1, -1, 0), (0, 0), (0, 0, -1), (255, 80, 80)),
+    vertex((1, -1, 0), (1, 0), (0, 0, -1), (80, 255, 120)),
+    vertex((0, 1, 0), (0.5, 1), (0, 0, -1), (80, 140, 255))
+], [0, 1, 2])
+material surface = create_material()
+surface.color = (255, 255, 255)
+triangle.material = surface
+def draw():(
+    triangle.rotation.y += 45 * delta_time
+    clear((20, 28, 38))
+    set_camera(view)
+    draw_mesh(triangle)
+    fill_poly([vec3(1.5, -1, 0), vec3(3, -1, 0), vec3(2, 1, 0)], (240, 180, 60))
+    if key_pressed("Escape"):(close_window())
+)
+END EXAMPLE
+
+BEGIN EXAMPLE: textures.oak
+window "Oak - image texture" 800 600
+texture picture = load_texture("assets/checker.png")
+picture.filter = <nearest>
+picture.wrap = <repeat>
+picture.mipmap = true
+float angle = 0
+def draw():(
+    angle += 20 * delta_time
+    clear((20, 28, 38))
+    texture_blit(picture, 80, 100, 240, 240, angle, 1, (255, 255, 255))
+    texture_blit_region(picture, 400, 100, 200, 200,
+                        0, 0, picture.width, picture.height)
+    if key_pressed("Escape"):(close_window())
+)
+END EXAMPLE
+
+BEGIN EXAMPLE: text.oak
+window "Oak - text" 800 600
+font label = load_font("assets/AtkinsonHyperlegible-Regular.ttf", 28)
+label.spacing = 1
+label.wrap_width = 700
+label.align = <left>
+camera view = create_camera()
+def draw():(
+    clear((20, 28, 38))
+    set_camera(view)
+    draw_text3("World label", (-1, 0, 0), view.position,
+               (255, 230, 150), label, 28, 0.01)
+    draw_text("Hello, Oak!", 40, 40, (255, 255, 255), label)
+    draw_text2("Size: " + string(measure_text("Hello, Oak!", label)),
+               40, 100, (150, 210, 255), label, 20)
+    if key_pressed("Escape"):(close_window())
+)
+END EXAMPLE
+
+12. EVERY BUILT-IN ATTRIBUTE AND GPU OPTION
+------------------------------------------
+Attribute syntax is object.name; assignment is object.name = expression.
+Attributes are checked by resource type. Unknown attributes fail.
+
+texture:
+    width, height : int       default blit dimensions; does not resize pixels
+    name : string
+    position : vec3           metadata
+    filter : <nearest|linear> default linear
+    wrap : <repeat|clamp|mirror> default clamp
+    repeat : bool             default false; true forces repeat wrapping
+    mipmap : bool             default false; real GPU mipmaps
+    anisotropic : float       1..16; default 1
+model and mesh:
+    position : vec3           default (0,0,0)
+    rotation : vec3           Euler degrees; default (0,0,0)
+    scale : vec3              default (1,1,1)
+    name : string
+    material : material       optional override; initially unset
+material:
+    texture : texture         optional; initially unset
+    color : color             default (255,255,255,255)
+    roughness : float         0..1, default 1; stored, not default-shader lighting
+    metallic : float          0..1, default 0; stored, not default-shader lighting
+    name : string
+camera:
+    position : vec3           default (0,0,-5)
+    rotation : vec3           Euler degrees; default (0,0,0)
+    fov : float               degrees, 0 < fov < 180; default 70
+    near : float              positive; default 0.01
+    far : float               must exceed near; default 1000
+shader:
+    name : string
+vertex:
+    position : vec3
+    uv : vec2                 default (0,0)
+    normal : vec3             default (0,0,1); retained attribute
+    color : color             default (255,255,255,255)
+font:
+    name : string             read-only filename
+    size : float              2..256 pixels; default 32; rasterized at ceil(size)
+    scale : float             positive; default 1
+    spacing : float           extra advance pixels; default 0
+    line_spacing : float      positive height multiplier; default 1.2
+    wrap_width : float        nonnegative pixels; default 0 (disabled)
+    align : <left|center|right> default left
+    opacity : float           0..1; default 1
+    rotation : float          degrees; default 0
+    billboard : bool          camera-facing 3D labels; default false
+    depth_test : bool         3D text depth testing; default true
+list, tuple, string:
+    length : int              read-only
+vec2/3/4, ivec2/3/4, uvec2/3/4, quat:
+    x, y, z, w                dimension permitting; writable components
+color:
+    r, g, b, a                writable integer components
+
+Global render-state objects:
+    blend.mode = <alpha>      choices alpha, additive, opaque
+    depth.mode = <less>       choices less, less_equal, greater, always, none
+    cull.mode = <none>        choices front, back, none
+These are the initial states. An option is valid only for its receiving
+attribute: texture.wrap = <linear> and texture.width = <nearest> fail.
+User option sets do not extend these renderer-defined choices.
+
+Material example (place in a program after loading a texture/creating a mesh):
+    material surface = create_material()
+    surface.texture = picture
+    surface.color = (255, 255, 255)
+    triangle.material = surface
+    triangle.position = (0, 0, 2)
+    triangle.rotation = (0, 45, 0)
+    triangle.scale = (2, 2, 2)
+
+13. ASSETS AND CUSTOM SHADERS
+---------------------------
+Paths resolve beside the source file whose code makes the call, including
+inside imported functions. Use a quoted path in load_texture/load_model/
+load_font/load_shader/read_text/write_text/file_exists.
+Textures support PNG, JPEG, BMP, TGA and other stb-supported image formats;
+extensionless texture paths try common extensions.
+Models support OBJ/basic MTL and static glTF 2.0/GLB triangle geometry,
+node transforms, vertex colors, base-color materials and textures.
+Animations/skinning are not implemented.
+
+The default shader is unlit. Stored roughness, metallic and normals do not
+provide automatic lighting. Oak Blocks demonstrates directional lighting,
+ambient occlusion, fog and textured blocks through custom shaders.
+
+    shader custom = load_shader("assets/shaders/custom")
+    use_shader(custom)
+    // draw geometry here
+    reset_shader()
+
+The loader reads base_path.vert.spv and base_path.frag.spv. A directory path
+instead reads oak.vert.spv and oak.frag.spv within that directory.
+Shaders are precompiled SPIR-V. Runtime GLSL compilation and arbitrary uniform
+APIs are not implemented; the Vulkan SDK is needed only when compiling GLSL.
+Vertex ABI: location 0 vec3 position; location 1 vec2 UV; location 2 vec4 color.
+Set 0 binding 0: mat4 transform. Set 1 binding 0: texture; binding 1: sampler.
+Consult Oak Blocks' assets/shaders for actual vertex/fragment GLSL and SPIR-V.
+All shaders/resources are scoped to the program and cleaned up on exit.
+
+The asset-dependent examples above expect:
+    textures.oak: assets/checker.png (supply any PNG under that filename)
+    text.oak: assets/AtkinsonHyperlegible-Regular.ttf
+The font and its OFL.txt license are included in the Oak Blocks release;
+keep the license with the font when copying it into another project.
+
+14. PACKAGES AND REGISTRIES
+--------------------------
+A package folder contains oakpackage.json, for example:
+    {
+      "name": "oakmath",
+      "version": "1.0.0",
+      "entry": "main.oak",
+      "dependencies": {"other_library": "2.1.0"}
+    }
+
+Names start with a lowercase letter and contain lowercase letters, digits or
+underscores. Versions are exact major.minor.patch. Entry is a relative .oak
+path using forward slashes. dependencies may be omitted when there are none.
+
+    oakscript pkg pack FOLDER [OUTPUT.oakpkg]
+    oakscript pkg publish FOLDER LOCAL_REGISTRY
+    oakscript pkg install NAME VERSION --registry PATH_OR_URL [--project FOLDER]
+    oakscript pkg list [PROJECT]
+
+For example:
+    oakscript pkg pack ./oakmath oakmath-1.0.0.oakpkg
+    oakscript pkg publish ./oakmath C:/my-oak-registry
+    oakscript pkg install oakmath 1.0.0 --registry C:/my-oak-registry --project .
+    oakscript pkg install oakmath latest --registry https://your-host/registry
+    from "pkg:oakmath" import *
+
+publish writes a local registry, which may be served over HTTP/HTTPS. It does
+not upload to a hosted public registry. Existing versions cannot be overwritten.
+pack produces a deterministic ZIP archive for unchanged inputs. Installation
+validates package identity, SHA-256, archive paths and exact dependencies, then
+writes oak.lock.json atomically. Keep that lock with your project; install
+dependencies on each computer before running. Dependency cycles/conflicts fail.
+Cache: %LOCALAPPDATA%/OakScript/packages; OAKSCRIPT_HOME overrides its location.
+Limits: 64 MiB archive, 512 MiB expanded, 10,000 entries per archive.
+No semver ranges, registry accounts/signatures or remote publish command.
+
+15. EDITOR INTEGRATION
+---------------------
+    oakscript lsp
+Starts the Language Server Protocol server over stdin/stdout. It provides
+diagnostics, completion, hover, definitions and document symbols. Analysis
+never executes code or module hooks. It reports the first compiler error and
+uses UTF-16 positions with full-document synchronization.
+The separately built VS Code extension also supplies .oak highlighting and
+Run File / Check File commands. The extension is not required to run scripts.
+Rename, formatting, debugger and refactoring support are not implemented.
+
+16. LEARNING FROM OAK BLOCKS
+---------------------------
+Download OakBlocks.zip from this repository's Releases page. Extract the
+complete folder. Play.cmd launches the game; Textures.cmd launches its gallery.
+All main.oak, texture-demo.oak, test.oak and lib/*.oak sources are included.
+
+Read the files in this order:
+    main.oak               imports, window, setup and draw callback
+    lib/game.oak           game state, mode changes and update orchestration
+    lib/input.oak          keyboard/mouse handling
+    lib/physics.oak        movement, collisions, jumping, crouching and flight
+    lib/world.oak          voxel storage and terrain
+    lib/raycast.oak        block selection
+    lib/textures.oak       actual PNG resources and material selection
+    lib/meshing.oak        visible-face meshes and texture grouping
+    lib/render.oak         camera, world, shader and UI drawing
+    assets/shaders/        GLSL source and compiled SPIR-V
+    texture-demo.oak       isolated textured 3D gallery
+    test.oak               headless game checks
+
+    .\oakscript.exe test.oak
+    .\oakscript.exe --check main.oak
+    .\oakscript.exe --frames 4 --capture frame.png main.oak
+
+Controls: Enter starts/resumes; WASD moves; Space jumps; Shift crouches;
+F toggles flight (Space up/Shift down); mouse looks; left click breaks;
+right click places; 1-8 or wheel selects; Escape pauses; R respawns;
+Q quits while paused. Keep all assets/libraries with the game sources.
+This is a finite creative sandbox with session-only builds, without world
+saving, multiplayer or survival systems. It is an example of the current API.
