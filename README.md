@@ -62,7 +62,7 @@ Controls: Enter starts/resumes; WASD moves; Space jumps; Shift crouches; F toggl
 
 This repository distributes the compiled runner and language documentation. The compiler/runtime implementation source and build tooling are not included here. The Oak Blocks release includes the example game's source files for learning.
 
-VScode syntax highlighting is available in the Releases section ([0.3.2 VISX](https://github.com/FIRECATCHER404/OakScript/releases/tag/0.3.2%E2%80%93VSIX))
+VScode syntax highlighting extension VSIX is available in the Releases section ([0.3.2 VISX](https://github.com/FIRECATCHER404/OakScript/releases/tag/0.3.2%E2%80%93VSIX))
 
 ## License and redistribution
 
