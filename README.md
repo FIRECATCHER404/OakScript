@@ -62,6 +62,8 @@ Controls: Enter starts/resumes; WASD moves; Space jumps; Shift crouches; F toggl
 
 This repository distributes the compiled runner and language documentation. The compiler/runtime implementation source and build tooling are not included here. The Oak Blocks release includes the example game's source files for learning.
 
+VScode syntax highlighting is available in the Releases section ([0.3.2 VISX](https://github.com/FIRECATCHER404/OakScript/releases/tag/0.3.2%E2%80%93VSIX))
+
 ## License and redistribution
 
 The OakScript executable and its original compiler/runtime implementation source are covered by the [OakScript Limited Use License — No Redistribution](LICENSE.txt). You may download and run the software on devices you control, including to run your own programs and learn from Oak Blocks. **Redistributing, re-uploading, mirroring, selling, or bundling the executable or its implementation source, including modified versions, requires the owner's prior written permission**, subject to the third-party, statutory, platform, and earlier-license rights described in the license.
