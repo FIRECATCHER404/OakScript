@@ -8,12 +8,12 @@ Read [SYNTAX.txt](SYNTAX.txt) for the complete implemented syntax, every built-i
 
 Download the repository using **Code > Download ZIP**, then extract it. This keeps [oakscript.exe](oakscript.exe), [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), and [third-party-licenses/](third-party-licenses/) together. A portable runner bundle, **OakScript-0.3.2-win-x64.zip**, is also available from [Releases](https://github.com/FIRECATCHER404/OakScript/releases).
 
-Open PowerShell in the extracted folder and run:
+Once downloaded you can run the following with the Executable:
 
-```powershell
-.\oakscript.exe --version
-.\oakscript.exe C:/path/to/file.oak
-.\oakscript.exe "C:/path with spaces/file.oak" first "second argument"
+```cmd
+oakscript.exe --version
+oakscript.exe C:/path/to/file.oak
+oakscript.exe "C:/path with spaces/file.oak" first "second argument"
 ```
 
 The EXE is self-contained: users do not need .NET, Python, or the Vulkan SDK installed. This build targets **Windows x64**. Graphics programs need a working Vulkan GPU driver; console programs do not initialize graphics. macOS/Linux binaries are not included. Portability was tested in separate folders on the development PC; other computers and GPU vendors have not been tested.
