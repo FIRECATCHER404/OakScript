@@ -1,0 +1,13 @@
+/# All bindings defined at the top level are available to import. #/
+int first = 10
+string second = "Oak"
+vec3 third = (1, 2, 3)
+
+def add(int a, int b) -> int:(
+    return a + b
+)
+
+def transformed_point() -> vec4:(
+    mat4 transform = translate((10, 0, 0)) * scale((2, 2, 2))
+    return transform * vec4(1, 2, 3, 1)
+)

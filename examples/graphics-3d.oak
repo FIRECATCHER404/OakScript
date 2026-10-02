@@ -1,0 +1,20 @@
+window "OakScript - Vulkan 3D" 800 600
+camera main_camera = create_camera()
+main_camera.position = (0, 1, -5)
+main_camera.rotation = (8, 0, 0)
+model cube = load_model("assets/cube.obj")
+cube.rotation = (20, 35, 0)
+material surface = create_material()
+surface.texture = load_texture("assets/checker.png")
+surface.color = (110, 210, 150)
+cube.material = surface
+cull.mode = <none>
+depth.mode = <less>
+
+def draw():(
+    clear((20, 28, 38))
+    set_camera(main_camera)
+    cube.rotation.y += delta_time * 30
+    draw_model(cube)
+    if key_down("Escape"):(close_window())
+)

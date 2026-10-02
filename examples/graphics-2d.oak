@@ -1,0 +1,23 @@
+window "OakScript - Vulkan 2D" 800 600
+texture pattern = load_texture("assets/checker.png")
+pattern.filter = <nearest>
+pattern.wrap = <repeat>
+bool dorep = true
+pattern.repeat = dorep
+pattern.name = "checker pattern"
+color orange = (244, 157, 66)
+float angle = 0.0
+
+def draw():(
+    angle += delta_time * 30
+    clear((20, 28, 38))
+    texture_blit(pattern, 40, 40, 256, 256)
+    texture_blit(pattern, 360, 40, 160, 160, angle, 0.85, (120, 220, 170))
+    texture_blit_region(pattern, 560, 40, 160, 160, 0, 0, 8, 8)
+    fill_poly([
+        (80, 380), (260, 380), (260, 440),
+        (180, 440), (180, 520), (80, 520)
+    ], orange)
+    fill_poly([(350, 380), (540, 380), (440, 540)], (80, 175, 235))
+    if key_down("Escape"):(close_window())
+)

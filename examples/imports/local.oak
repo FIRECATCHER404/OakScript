@@ -1,0 +1,8 @@
+/# Bare names and neighboring filenames refer to the same module. #/
+from library import *
+from "library.oak" import add
+assert(add(first, 5) == 15)
+assert(second == "Oak")
+assert(third == vec3(1, 2, 3))
+assert(transformed_point() == vec4(12, 4, 6, 1))
+print("Local imports work:", first, second, third)

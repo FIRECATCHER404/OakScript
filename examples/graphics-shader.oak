@@ -1,0 +1,9 @@
+window "OakScript - Custom Vulkan Shader" 800 600
+shader custom = load_shader("assets/shaders/custom")
+texture pattern = load_texture("assets/checker.png")
+def draw():(
+    clear((20, 28, 38))
+    use_shader(custom)
+    texture_blit(pattern, 200, 100, 400, 400)
+    if key_down("Escape"):(close_window())
+)

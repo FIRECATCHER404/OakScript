@@ -1,0 +1,17 @@
+from "imports/library.oak" import first;second;third;add;transformed_point
+assert(add(first, 5) == 15)
+assert(transformed_point() == vec4(12, 4, 6, 1))
+print("Imported:", first, second, third)
+
+mat3 identity3 = (
+    (1, 0, 0),
+    (0, 1, 0),
+    (0, 0, 1)
+)
+assert(identity3 * third == third)
+int total = 0
+for value in range(1, 6):(
+    total += value
+)
+assert(total == 15)
+print("Matrix convention and end-exclusive range verified.")

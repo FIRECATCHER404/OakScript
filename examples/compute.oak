@@ -1,0 +1,9 @@
+/# No window required. Compile GLSL with glslc (only developers need the compiler). #/
+compute_shader square=load_compute_shader("assets/shaders/square.comp.spv")
+gpu_buffer data=create_buffer([1,2,3,4])
+dispatch(square,[data],1)
+println(read_buffer(data)) /# [1, 4, 9, 16] (float values) #/
+compute_shader gradient=load_compute_shader("assets/shaders/gradient.comp.spv")
+gpu_image image=create_image(256,256)
+dispatch(gradient,[image],32,32)
+save_image(image,"compute-output.png")

@@ -1,0 +1,37 @@
+window "Oak real GPU shadows" 960 720
+camera view=create_camera()
+view.position=(6,5,-8)
+view.rotation=(20,-30,0)
+set_camera(view)
+light sun=create_light()
+sun.type=<directional>
+sun.direction=(0.5,-1,0.5)
+sun.position=(0,0,3)
+sun.range=30
+sun.shadow_extent=22
+sun.cast_shadows=true
+sun.shadow_filter=<pcf>
+add_light(sun)
+set_ambient((255,255,255),0.15)
+mesh ground=create_mesh([
+    vertex((-6,0,-2),(0,0),(0,1,0)),vertex((6,0,-2),(1,0),(0,1,0)),
+    vertex((6,0,10),(1,1),(0,1,0)),vertex((-6,0,10),(0,1),(0,1,0))
+],[0,1,2,0,2,3])
+mesh block=create_mesh([
+    vec3(-1,0,1),vec3(1,0,1),vec3(1,2,1),vec3(-1,2,1),
+    vec3(-1,0,3),vec3(1,0,3),vec3(1,2,3),vec3(-1,2,3)
+],[0,1,2,0,2,3,4,7,6,4,6,5,0,4,5,0,5,1,3,2,6,3,6,7,0,3,7,0,7,4,1,5,6,1,6,2])
+material green=create_material()
+green.color=(100,180,100)
+block.material=green
+def draw():(
+    if key_pressed("1"):(sun.type=<directional>;sun.intensity=1;sun.position=(0,0,3);sun.direction=(0.5,-1,0.5))
+    if key_pressed("2"):(sun.type=<point>;sun.intensity=100;sun.position=(-3,6,-2))
+    if key_pressed("3"):(sun.type=<spot>;sun.intensity=100;sun.position=(-3,6,-2);sun.direction=(0.5,-1,0.7);sun.inner_angle=45;sun.outer_angle=60)
+    if key_pressed("S"):(sun.cast_shadows=not sun.cast_shadows)
+    if key_pressed("Escape"):(close_window())
+    clear((24,30,38))
+    draw_mesh(ground)
+    draw_mesh(block)
+)
+/# 1 directional, 2 point, 3 spot; S toggles shadows; Escape closes. #/

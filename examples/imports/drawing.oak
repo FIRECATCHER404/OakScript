@@ -1,0 +1,11 @@
+from palette import background;accent
+/# This path resolves beside drawing.oak, even when called from another file. #/
+texture checker = load_texture("../assets/checker.png")
+checker.filter = <nearest>
+
+def draw():(
+    clear(background)
+    texture_blit(checker, 40, 40, 256, 256)
+    fill_poly([(400, 100), (600, 100), (500, 300)], accent)
+    if key_down("Escape"):(close_window())
+)

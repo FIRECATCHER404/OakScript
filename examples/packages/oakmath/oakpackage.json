@@ -1,0 +1,6 @@
+{
+  "name": "oakmath",
+  "version": "1.0.0",
+  "entry": "main.oak",
+  "dependencies": {}
+}

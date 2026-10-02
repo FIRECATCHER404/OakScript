@@ -1,4 +1,4 @@
-OAKSCRIPT 0.3.2 - SYNTAX AND BUILT-IN REFERENCE
+OAKSCRIPT 0.4.0 - SYNTAX AND BUILT-IN REFERENCE
 ============================================
 
 This describes the implemented Windows x64 runner, not planned features.
@@ -71,8 +71,12 @@ true, false and null are literals. null has no general nullable type syntax.
 Use double-quoted or single-quoted strings:
     "hello"    'hello'    "a\nb"    "tab\tvalue"    "\u0041"
 Escapes: \n \r \t \\ \" \' and \u followed by four hex digits.
-String literals cannot contain a physical newline. Concatenate with +.
-There are no interpolation, raw-string or triple-quoted-string forms.
+Ordinary quoted strings cannot contain a physical newline. Triple double or
+single quotes accept multiline text. Physical CRLF, CR and LF become \n;
+escapes work as in ordinary strings, and indentation is preserved.
+    string text = """first line
+    second line with "quotes" inside."""
+There is no string interpolation or raw-string prefix.
 Prefer forward slashes in Windows paths, or escape each backslash.
 
 BEGIN EXAMPLE: hello.oak
@@ -122,8 +126,8 @@ int: signed 64-bit. float: finite 64-bit floating point.
 vecN: N floating components. ivecN: signed 32-bit integer components.
 uvecN: unsigned 32-bit integer components.
 color: 3 or 4 integer channels in 0..255; omitted alpha becomes 255.
-quat: four floating components ordered x,y,z,w. It is a value type; no
-quaternion-specific rotation/conversion functions are currently exposed.
+quat: four floating components ordered x,y,z,w, with Hamilton multiplication,
+vector rotation, normalization, inverse, interpolation and conversions.
 matN: N by N matrix, row-major storage, column-vector multiplication.
 
     vec3 p = (1, 2, 3)               tuple-to-type initialization
@@ -508,7 +512,7 @@ END EXAMPLE
     window TITLE_EXPRESSION WIDTH_EXPRESSION HEIGHT_EXPRESSION
     window "My game" 800 600
 
-Only one window is supported per program. Width/height must be integers in
+Multiple windows are supported. Width/height must be integers in
 1..16384. Create a window before rendering/input calls. The runner owns the event/frame
 loop: put updates and drawing in draw(), not a manual infinite window loop.
 Top-level rendering commands are replayed before each draw invocation.
@@ -750,9 +754,11 @@ Models support OBJ/basic MTL and static glTF 2.0/GLB triangle geometry,
 node transforms, vertex colors, base-color materials and textures.
 Animations/skinning are not implemented.
 
-The default shader is unlit. Stored roughness, metallic and normals do not
-provide automatic lighting. Oak Blocks demonstrates directional lighting,
-ambient occlusion, fog and textured blocks through custom shaders.
+Geometry stays unlit with no active lights. Adding light objects enables
+the built-in diffuse lighting/shadow shader for 3D geometry, using supplied
+or derived face normals. Roughness/metallic do not implement PBR. Oak Blocks
+retains its custom directional-light/AO/fog shader. See the lighting reference
+below for the general light-object and GPU-shadow APIs.
 
     shader custom = load_shader("assets/shaders/custom")
     use_shader(custom)
@@ -763,7 +769,8 @@ The loader reads base_path.vert.spv and base_path.frag.spv. A directory path
 instead reads oak.vert.spv and oak.frag.spv within that directory.
 Shaders are precompiled SPIR-V. Runtime GLSL compilation and arbitrary uniform
 APIs are not implemented; the Vulkan SDK is needed only when compiling GLSL.
-Vertex ABI: location 0 vec3 position; location 1 vec2 UV; location 2 vec4 color.
+Vertex ABI: location 0 vec3 position; location 1 vec2 UV; location 2 vec4 color;
+optional location 3 vec3 normal. Existing shaders using locations 0..2 still work.
 Set 0 binding 0: mat4 transform. Set 1 binding 0: texture; binding 1: sampler.
 Consult Oak Blocks' assets/shaders for actual vertex/fragment GLSL and SPIR-V.
 All shaders/resources are scoped to the program and cleaned up on exit.
@@ -851,3 +858,341 @@ right click places; 1-8 or wheel selects; Escape pauses; R respawns;
 Q quits while paused. Keep all assets/libraries with the game sources.
 This is a finite creative sandbox with session-only builds, without world
 saving, multiplayer or survival systems. It is an example of the current API.
+
+
+OAKSCRIPT 0.4.0 - AUDIO, MATH, WINDOWS, COMPUTE AND LIGHTING
+
+This reference supplements the core syntax in SYNTAX.txt. The APIs are general
+runtime facilities; none depend on Oak Blocks or other game-specific code.
+All source resource paths resolve beside the calling Oak module.
+
+MATRIX MATH
+
+Matrices store rows and multiply column vectors. A*B*v applies B, then A.
+GPU projections use +Z forward, +Y up and depth 0..1. All rotation and field
+of view angles are degrees. Euler vectors mean (pitch X, yaw Y, roll Z),
+composed as rotation_y(y)*rotation_x(x)*rotation_z(z).
+
+    inverse(mat2|mat3|mat4) -> same matrix type
+    determinant(mat2|mat3|mat4) -> float
+    matrix_multiply(matrix, matrix, ...) -> same matrix type
+    perspective(fov_degrees, aspect, near, far) -> mat4
+    orthographic(left, right, bottom, top, near, far) -> mat4
+    look_at(eye_vec3, target_vec3, up_vec3) -> mat4
+    rotation_x(degrees) -> mat4
+    rotation_y(degrees) -> mat4
+    rotation_z(degrees) -> mat4
+    rotation_axis(axis_vec3, degrees) -> mat4
+    decompose(mat4) -> (translation_vec3, rotation_quat, scale_vec3)
+
+inverse/determinant use double precision and partial-pivot elimination.
+Singular inverse, invalid projection bounds and degenerate look-at directions
+are errors. decompose supports affine translation/rotation/scale, including
+a reflection represented by a negative X scale. It rejects zero scale, shear
+and perspective transforms. matrix_multiply operands must have equal sizes.
+
+    mat4 transform=translate((10,0,0))*scale((2,2,2))
+    vec4 result=transform*vec4(1,2,3,1) // (12,4,6,1)
+    vec4 original=inverse(transform)*result
+    parts=decompose(transform)
+    vec3 position=parts[0]
+    quat orientation=parts[1]
+    vec3 size=parts[2]
+
+QUATERNIONS
+
+Ordering stays x,y,z,w; identity is quat(0,0,0,1). Quaternion products use
+Hamilton multiplication: qA*qB*v applies qB first, then qA. Scalar products
+scale components. q*vec3 rotates a vector using the normalized quaternion.
+
+    quat_multiply(quat, quat) -> quat          // same as qA*qB
+    quat_normalize(quat) -> quat              // normalize(q) also works
+    quat_inverse(quat) -> quat                // inverse(q) also works
+    conjugate(quat) -> quat
+    quat_rotate(quat, vec3) -> vec3            // same as q*v
+    quat_slerp(first, second, amount) -> quat
+    quat_nlerp(first, second, amount) -> quat
+    quat_from_euler(pitch_yaw_roll_vec3) -> quat
+    quat_to_euler(quat) -> vec3
+    quat_from_axis_angle(axis_vec3, degrees) -> quat
+    quat_to_matrix(quat) -> mat4
+    quat_from_matrix(mat3|mat4) -> quat
+
+Interpolation normalizes endpoints and uses the shortest rotational arc;
+amount must be 0..1. Axis and quaternion normalization require nonzero values.
+Matrix conversion expects an orthonormal proper rotation; decompose a scaled
+matrix first. Euler output uses a canonical representative; at gimbal lock
+roll is set to zero. Equivalent rotations can have different Euler values.
+
+    quat turn=quat_from_axis_angle((0,1,0),90)
+    vec3 right=turn*vec3(0,0,1) // approximately (1,0,0)
+    quat halfway=quat_slerp(quat(0,0,0,1),turn,0.5)
+
+GENERAL AUDIO
+
+Audio initializes only when requested and does not require a window or GPU.
+The bundled SDL2 backend produces 48000 Hz stereo floating-point output;
+SDL converts to the device format when necessary. Each playback voice is an
+independent channel with its own controls. Files can be mono or stereo WAV:
+PCM 8/16/24/32-bit or IEEE float32, at 8000..192000 Hz. Compressed MP3/OGG
+decoding, recording, DSP effects and device selection are not implemented.
+
+    load_sound(path_string) -> sound
+    load_music(path_string) -> music
+    play_sound(sound[, audio_bus]) -> audio_voice
+    play_music(music[, audio_bus]) -> audio_voice
+    stop_audio([audio_voice]) -> void     // omitted: stop all voices
+    pause_audio(audio_voice) -> void
+    resume_audio(audio_voice) -> void
+    audio_master() -> audio_bus
+    create_audio_bus(name_string[, parent_audio_bus]) -> audio_bus
+    route_audio_bus(bus, parent_bus) -> void
+    set_listener(position_vec3[, forward_vec3[, up_vec3]]) -> void
+    audio_status() -> string
+
+sound/music writable attributes (defaults copied into a new playback voice):
+    .volume float >= 0; default 1
+    .pitch float 0.01..8; default 1 (rate multiplier, also changes duration)
+    .loop bool; default false
+    .pan float -1..1; default 0 (-1 left, +1 right)
+    .position vec3; default (0,0,0)
+    .spatial bool; default false
+    .min_distance float > 0; default 1
+    .max_distance float > min_distance; default 100
+    .rolloff float >= 0; default 1
+    .attenuation = <inverse> | <linear> | <none>; default <inverse>
+Read-only sound/music attributes:
+    .name string; .duration float seconds; .channels int (1 or 2)
+    .sample_rate int; .streaming bool
+
+audio_voice has the writable sound controls plus .bus (audio_bus).
+Its .playing bool, .paused bool and .time float seconds are read-only.
+Pausing keeps .playing true; stop/end-of-file sets it false. Paused voices
+do not advance. Finished voices cannot be resumed; start another playback.
+audio_bus has .volume float >= 0, .mute bool and read-only .name string.
+Parents multiply gains; the master affects all descendants. Routing cycles
+are errors and the master cannot be rerouted. Bus names are nonempty/unique.
+
+Ordinary stereo preserves independent left/right channels. Mono and spatial
+voices use equal-power panning. Spatial playback folds stereo to mono and
+computes pan from the listener's position/orientation. Default listener is
+position (0,0,0), forward (0,0,1), up (0,1,0). Forward and up must be nonzero
+and nonparallel. Inverse attenuation is min/(min+rolloff*(distance-min));
+linear attenuation is (1-(distance-min)/(max-min))**rolloff. Both retain full
+gain within min and become silent at/beyond max. <none> disables distance
+attenuation. Output mixing clamps to -1..1 to avoid clipping overflow.
+
+load_sound decodes the complete sound (at most 512 MiB). load_music reads
+metadata and keeps two 4096-frame file blocks per playback voice; it does
+not decode the entire track. Decoding/resampling/mixing run on an audio
+producer thread, independent of graphics. Streaming assumes its WAV stays
+available and unchanged. Device/stream failures are reported by audio_status
+and subsequent playback operations. The runner closes audio on exit.
+
+    audio_bus effects=create_audio_bus("effects")
+    effects.volume=0.5
+    sound hit=load_sound("assets/audio/chime.wav")
+    audio_voice voice=play_sound(hit,effects)
+    voice.spatial=true
+    voice.position=(2,0,2)
+    voice.attenuation=<inverse>
+    voice.pitch=1.25
+    sleep(1000)
+    stop_audio(voice)
+
+MULTIPLE WINDOWS
+
+    create_window(title_string, width_int, height_int) -> window_handle
+    active_window() -> window_handle
+    set_window(window_handle) -> void
+    window_open(window_handle) -> bool
+    windows() -> list of currently open window handles
+    close_window([window_handle]) -> void
+    graphics_stats() -> list
+
+The existing window "Title" width height statement creates/selects a window;
+repeating it creates another. create_window also selects its new window.
+Each window owns a Vulkan device, swapchain, framebuffer, camera, lights,
+shader state, frame resources and keyboard/mouse state. Rendering and input
+queries target the selected window. draw() runs once per application frame;
+select each desired window and issue its commands in that callback. A window
+created during draw joins the next frame. Native close or close_window closes
+only that window. Execution stops when every window closes or --frames ends.
+Relative mouse capture has one owner at a time, matching SDL's device model.
+close_window releases capture and hides the window. Closed handles cannot be
+selected again. GPU resources remain owned until interpreter cleanup so live
+compute resources may continue to refer to their original device.
+--capture captures the first window created, even if another is selected.
+
+graphics_stats indices: 0 completed frames; 1 buffer uploads; 2 texture uploads;
+3 graphics pipeline count; 4 cached surface descriptor count; 5 shadow face
+passes. Counts help inspect upload/pipeline reuse and are per window.
+
+    window_handle first=create_window("First",640,480)
+    window_handle second=create_window("Second",400,300)
+    def draw():(
+        if window_open(first):(set_window(first); clear((30,65,100)))
+        if window_open(second):(set_window(second); clear((65,100,30)))
+    )
+
+GPU COMPUTE
+
+Compute uses the selected window's Vulkan device if the first compute call
+occurs after window creation. Otherwise it creates a headless Vulkan device.
+The compute context remains on that device when the selected window changes.
+Shader/resource handles must belong to the same interpreter compute context.
+No compute call needs game objects, a world, camera or rendering callback.
+
+    load_compute_shader(path_string) -> compute_shader
+    create_buffer(element_count_int | list[, format_string]) -> gpu_buffer
+    write_buffer(buffer, list[, element_offset_int]) -> void
+    read_buffer(buffer[, element_offset_int[, count_int]]) -> list
+    create_image(width_int, height_int[, format_string]) -> gpu_image
+    write_image(image, list) -> void
+    read_image(image) -> list
+    dispatch(shader, bindings_list, groups_x[, groups_y[, groups_z]]) -> void
+    compute_wait() -> void
+    compute_texture(image) -> texture
+    snapshot_texture(image) -> texture
+    save_image(image, path_string) -> void
+
+Buffer format is "float" (default), "int" or "uint", all 32-bit. Input lists
+initialize values; element counts initialize zeros. Buffers have read-only
+.count int and .format string. Bounds and integer ranges are checked. Maximum
+buffer allocation is 1 GiB (268435456 elements). Float32 values must be finite.
+read_buffer returns Oak float for float32, Oak int for int32/uint32.
+
+Image format is "rgba8" (default) or "r32f". Images expose read-only .width,
+.height ints and .format string. Dimensions are 1..16384, at most 1 GiB of
+pixels. Rows are top-to-bottom. rgba8 read/write lists contain R,G,B,A integer
+bytes 0..255 for each pixel. r32f lists contain one float per pixel. Images
+start at zero. save_image writes a PNG from rgba8 via explicit GPU readback.
+
+dispatch group counts are 1..65535 in each dimension; defaults y/z=1. Local
+workgroup sizes come from the shader, so 64 invocations per group means a
+64-thread local size, not 64 groups. Shader code must bounds-check extra
+invocations when image/buffer dimensions are not a whole number of groups.
+Dispatch is asynchronous and queue ordered. read_buffer/read_image/save_image,
+snapshot_texture and compute_wait wait for their requested results. Explicit
+image writes order against earlier jobs. Pipelines and descriptor sets cache
+by shader/binding layout and handles; identical shader paths load once.
+
+Shaders are compiled SPIR-V (.comp.spv), entry "main", with literal
+local_size_x/y/z. Use GLSL #version 450, one descriptor set (set=0), sequential
+bindings matching the Oak bindings list. Each buffer is a std430 read/write
+storage buffer; each image is a formatted read/write storage image. Uniform
+buffers, samplers, indirect dispatch and runtime GLSL compilation are not
+part of this API. Write uniforms as small storage buffers when needed.
+
+    // GLSL, compile: glslc square.comp -o square.comp.spv
+    #version 450
+    layout(local_size_x=64) in;
+    layout(set=0,binding=0,std430) buffer Data { float values[]; };
+    void main() {
+        uint i=gl_GlobalInvocationID.x;
+        if(i<values.length()) values[i]*=values[i];
+    }
+
+    compute_shader kernel=load_compute_shader("assets/shaders/square.comp.spv")
+    gpu_buffer values=create_buffer([1,2,3,4])
+    dispatch(kernel,[values],1)
+    println(read_buffer(values)) // [1,4,9,16] (float values)
+
+compute_texture exposes an rgba8 storage image directly to graphics on its
+owning window/device; mutations by later dispatches appear without CPU
+readback or texture re-upload. It has one mip level. A texture belonging to
+another device cannot be drawn directly: snapshot_texture returns a CPU
+snapshot usable by any window, including a window opened after headless
+compute. Reuse the same image/texture handles for per-frame effects.
+
+LIGHTING AND GPU SHADOWS
+
+    create_light() -> light
+    add_light(light) -> void
+    remove_light(light) -> void
+    clear_lights() -> void
+    use_lighting(bool) -> void
+    set_ambient(color[, intensity_number]) -> void
+
+Light objects are general resources. A window maintains its own active list;
+adding the same object again is harmless. The same light can be added to
+multiple windows. Mutating its attributes updates subsequent frames.
+
+    .type = <directional> | <point> | <spot>; default <directional>
+    .position vec3; default (0,0,0)
+    .direction vec3 nonzero; default (0,-1,1), automatically normalized
+    .color color; default (255,255,255,255)
+    .intensity float >= 0; default 1
+    .range float > 0.02; default 100
+    .inner_angle float degrees 0..<90; default 20
+    .outer_angle float degrees 0..<90; default 30
+    .cast_shadows bool; default false
+    .shadow_bias float >= 0; default 0.001 (normalized light-depth units)
+    .shadow_extent float > 0; default 40 (directional map world width)
+    .shadow_near float > 0; default 0.1 (point/spot shadow projection)
+    .shadow_filter = <hard> | <pcf>; default <pcf>
+
+For spots, require 0 <= inner_angle <= outer_angle < 90 and outer_angle > 0.
+The angles are cone HALF-angles. Point/spot range controls attenuation and
+the shadow far plane; shadow_near must be less than range. Point attenuation
+is (1-distance/range)**2/(1+distance**2), clipped at range. Spot cones smoothly
+interpolate between inner and outer cone edges. Direction is where rays
+travel; directional illumination arrives from its negative. Directional
+position centers its orthographic shadow volume, extent sets its world width,
+and range sets coverage along its direction. Configure these for your scene.
+
+3D meshes/models/polygons use diffuse Lambert lighting when the selected
+window has lights and lighting is enabled. Vertex normals are transformed
+with the inverse transpose; missing normals fall back to fragment derivatives.
+2D graphics, text and existing custom shader programs retain their own
+appearance. Existing programs with no active lights retain their unlit
+behavior. roughness/metallic and normal-map textures do not implement PBR.
+
+Shadow casters are submitted 3D mesh/model/polygon geometry with lighting
+enabled. The GPU renders depth maps before the lit color pass. Directional
+and spot lights use one map; point lights use six perspective cube faces.
+The fragment shader projects world positions into those maps and compares
+depth, with slope-aware receiver bias and receiver-plane PCF correction.
+<pcf> uses 3x3 taps; <hard> uses one. Alpha below 0.5 in a caster's texture
+is discarded in its shadow pass. Custom shaders may cast but must supply
+their own lighting/shadow sampling if they replace the built-in color shader.
+
+Each window supports at most 16 active lights and 32 shadow faces, packed
+into a 4096x2048 depth atlas (512x512 per face). Exceeding these bounds is an
+explicit error; no lights or shadows are silently dropped. There are no
+cascades, dynamic shadow resolution, soft area lights or ray-traced shadows.
+
+    light sun=create_light()
+    sun.type=<directional>
+    sun.direction=(0.5,-1,0.5)
+    sun.cast_shadows=true
+    sun.shadow_filter=<pcf>
+    add_light(sun)
+    set_ambient((255,255,255),0.15)
+
+FRAME PERFORMANCE
+
+Each Vulkan window uses three frame contexts and fences. A context waits
+only before reusing its in-flight buffers/command list; there is no
+WaitForIdle per frame. Resize/capture/cleanup wait for resources they must
+replace or read; device idle is reserved for final device disposal.
+Immutable mesh/index arrays, tint results, unchanged transform uniforms,
+presentation quads, SPIR-V shader objects, pipelines, samplers and surface
+descriptors are cached. Texture revision changes create a replacement image;
+older versions are retired after a covering frame fence. Mipmaps generate
+once per upload rather than every draw. Immediate polygons/text remain
+dynamic data and upload when rebuilt. Make meshes once for repeated geometry.
+
+RUNNABLE EXAMPLES
+
+    oakscript examples/advanced-math.oak
+    oakscript examples/audio.oak
+    oakscript examples/compute.oak
+    oakscript examples/graphics-compute.oak
+    oakscript examples/graphics-windows.oak
+    oakscript examples/graphics-lighting.oak
+
+graphics-lighting controls: 1 directional, 2 point, 3 spot, S shadow toggle,
+Escape close. Compute and graphics need Vulkan. Audio uses the system output
+device. All examples ship with their shaders/audio assets, so users do not
+need glslc or other development tools to run them.

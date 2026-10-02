@@ -1,0 +1,18 @@
+/# Resources can be loaded and inspected without opening a window. #/
+texture image = load_texture("assets/checker")
+image.filter = <nearest>
+image.wrap = <repeat>
+image.repeat = true
+image.mipmap = true
+image.anisotropic = 4
+image.name = "checker"
+image.position = (0, 0, 0)
+assert(image.width == 32)
+assert(image.height == 32)
+image.width = 256
+image.height = 256
+model obj_model = load_model("assets/cube.obj")
+model gltf_model = load_model("assets/cube.gltf")
+model glb_model = load_model("assets/cube.glb")
+shader custom = load_shader("assets/shaders/custom")
+print("Resources loaded:", image, obj_model, gltf_model, glb_model, custom)

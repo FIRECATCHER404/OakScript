@@ -1,0 +1,18 @@
+/# Oak stores matrix rows and multiplies column vectors. All rotation angles are degrees. #/
+mat4 transform=translate((10,0,0))*rotation_y(30)*scale((2,3,4))
+vec4 point=(1,2,3,1)
+println("transformed:",transform*point)
+println("recovered:",inverse(transform)*(transform*point))
+println("determinant:",determinant(transform))
+parts=decompose(transform)
+println("translation, quaternion, scale:",parts)
+quat turn=quat_from_euler((20,45,0))
+println("rotated forward:",turn*vec3(0,0,1))
+println("halfway:",quat_slerp(quat(0,0,0,1),turn,0.5))
+mat4 view=look_at((0,0,-5),(0,0,0),(0,1,0))
+mat4 projection=perspective(70,16.0/9.0,0.1,100)
+println("clip position:",projection*view*point)
+string message="""This is a multiline string.
+Physical line breaks become LF characters.
+"Quotes" can appear inside it."""
+println(message)

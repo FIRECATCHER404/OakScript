@@ -1,0 +1,19 @@
+from "extensions/library.oak" import Point as P;Named;Status;starts;add as sum
+from "extensions/library.oak" import * as library
+extend options Status:(done)
+
+type Document from Named:(
+    readonly int id=1
+    P position=(0,0)
+    Status status=<idle>
+    list notes=[]
+)
+
+Document doc=Document()
+doc.position=(3,4)
+doc.status=<done>
+append(doc.notes,"Record, schema, option and alias support.")
+assert(starts==1)
+assert(sum(2,3)==5)
+assert(library.Point(5,6).y==6)
+print(doc)

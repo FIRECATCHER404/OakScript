@@ -1,0 +1,12 @@
+/# A single-file Oak program. Run: oakscript examples/hello.oak #/
+def add(a, b):(
+    return a + b
+)
+
+print("Hello from OakScript!")
+int result = add(5, 10)
+print("5 + 10 =", result)
+
+if argc > 0:(
+    print("Arguments:", args)
+)

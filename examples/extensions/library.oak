@@ -1,0 +1,7 @@
+options Status:(idle;working)
+schema Named:(string name="Oak")
+type Point:(float x=0;float y=0)
+int starts=0
+def __init__():(starts+=1)
+def __dispose__():(print("Library closed."))
+def add(a,b):(return a+b)

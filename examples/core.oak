@@ -1,0 +1,47 @@
+/# Functions, loops, lists, scopes, math types, and tuple construction. #/
+def factorial(int n) -> int:(
+    if n <= 1:(
+        return 1
+    )
+    return n * factorial(n - 1)
+)
+
+int total = 0
+for value in range(1, 6):(
+    total += value
+)
+assert(total == 15)
+assert(factorial(6) == 720)
+
+list values = [1, 2, 3]
+append(values, 4)
+values[0] = 10
+assert(values[-1] == 4)
+assert(pop(values) == 4)
+
+int count = 0
+while count < 5:(
+    count += 1
+    if count == 2:(continue)
+    if count == 4:(break)
+)
+assert(count == 4)
+
+vec3 position = (1, 2, 3)
+vec3 copy = position
+copy.x = 9
+assert(position.x == 1)
+vec3 moved = position + vec3(2, 3, 4)
+assert(moved == vec3(3, 5, 7))
+assert(dot(position, position) == 14)
+assert(cross(vec3(1, 0, 0), vec3(0, 1, 0)) == vec3(0, 0, 1))
+ivec2 signed = (-2, 3)
+uvec3 unsigned = (1, 2, 3)
+color red = (255, 0, 0)
+quat rotation = (0, 0, 0, 1)
+mat2 identity2 = (1, 0, 0, 1)
+mat3 identity3 = ((1, 0, 0), (0, 1, 0), (0, 0, 1))
+mat4 transform = translate((10, 0, 0)) * scale((2, 2, 2))
+vec4 transformed = transform * vec4(1, 2, 3, 1)
+assert(transformed == vec4(12, 4, 6, 1))
+print("Core checks passed:", total, factorial(6), moved, red)

@@ -1,0 +1,15 @@
+window_handle first=create_window("Oak first window",640,480)
+window_handle second=create_window("Oak second window",400,300)
+def draw():(
+    if window_open(first):(
+        set_window(first)
+        clear((30,65,100))
+        if key_pressed("Escape"):(close_window(first))
+    )
+    if window_open(second):(
+        set_window(second)
+        clear((65,100,30))
+        if key_pressed("Escape"):(close_window(second))
+    )
+)
+/# draw runs once each frame. Select a window before rendering or reading its inputs. #/

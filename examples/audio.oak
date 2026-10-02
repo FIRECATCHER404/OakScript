@@ -1,0 +1,18 @@
+/# General audio, without a graphics window. Source paths resolve beside this script. #/
+audio_bus effects=create_audio_bus("effects")
+audio_bus music_bus=create_audio_bus("music")
+effects.volume=0.5
+music_bus.volume=0.3
+sound chime=load_sound("assets/audio/chime.wav")
+music tune=load_music("assets/audio/melody.wav")
+tune.loop=true
+audio_voice background=play_music(tune,music_bus)
+audio_voice voice=play_sound(chime,effects)
+voice.spatial=true
+voice.position=(2,0,2)
+voice.pitch=1.2
+set_listener((0,0,0),(0,0,1),(0,1,0))
+sleep(2500)
+pause_audio(background)
+println("Audio output:",audio_status())
+stop_audio()

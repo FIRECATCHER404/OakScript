@@ -1,0 +1,13 @@
+window "OakScript - Vulkan glTF" 800 600
+camera view = create_camera()
+view.position = (0, 1, -5)
+view.rotation = (8, 0, 0)
+model cube = load_model("assets/cube.gltf")
+cube.rotation = (20, 35, 0)
+def draw():(
+    clear((20, 28, 38))
+    set_camera(view)
+    draw_model(cube)
+    cube.rotation.y += delta_time * 30
+    if key_down("Escape"):(close_window())
+)

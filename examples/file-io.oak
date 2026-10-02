@@ -1,0 +1,5 @@
+/# Paths resolve relative to this .oak file, regardless of the caller's directory. #/
+string path = "oak-output.txt"
+write_text(path, "Written by OakScript.\n")
+assert(file_exists(path))
+print(read_text(path))

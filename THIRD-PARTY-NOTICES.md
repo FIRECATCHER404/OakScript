@@ -15,4 +15,4 @@ OakScript uses these pinned packages and their transitive dependencies. Their co
 - Newtonsoft.Json: James Newton-King and contributors, MIT. https://github.com/JamesNK/Newtonsoft.Json
 - The self-contained Microsoft .NET runtime: .NET Foundation and contributors, MIT and associated third-party notices. https://github.com/dotnet/runtime
 
-The example models, checker texture, Acorn Run scenery, and Oak Blocks textures are generated within this project. Acorn Run and Oak Blocks include the unchanged Atkinson Hyperlegible font, copyright 2020 Braille Institute of America, Inc., under SIL Open Font License 1.1. Its full license is distributed with each game's font as `assets/OFL.txt`.
+The example models, checker texture, Acorn Run scenery, Oak Blocks textures, and example WAV sounds are generated within this project. Acorn Run and Oak Blocks include the unchanged Atkinson Hyperlegible font, copyright 2020 Braille Institute of America, Inc., under SIL Open Font License 1.1. Its full license is distributed with each game's font as `assets/OFL.txt`.

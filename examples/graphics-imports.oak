@@ -1,0 +1,2 @@
+from "imports/drawing.oak" import draw
+window "OakScript - Vulkan Imported Drawing" 800 600

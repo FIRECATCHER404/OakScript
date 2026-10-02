@@ -1,0 +1,10 @@
+window "Oak GPU image processing" 640 480
+compute_shader gradient=load_compute_shader("assets/shaders/gradient.comp.spv")
+gpu_image image=create_image(256,256)
+texture surface=compute_texture(image)
+def draw():(
+    dispatch(gradient,[image],32,32)
+    clear((24,30,38))
+    texture_blit(surface,80,40,480,400)
+)
+/# Storage image and draw share this window's GPU device. No readback or re-upload per frame. #/

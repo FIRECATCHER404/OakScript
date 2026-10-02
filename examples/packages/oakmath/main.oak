@@ -1,0 +1,2 @@
+def square(int n):(return n*n)
+type Measurement:(float value=0;string unit="")
