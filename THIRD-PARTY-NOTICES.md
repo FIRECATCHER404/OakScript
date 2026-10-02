@@ -2,6 +2,8 @@
 
 OakScript uses these pinned packages and their transitive dependencies. Their copyright and license notices are distributed in `third-party-licenses/` beside this file.
 
+`LICENSE.txt` applies to the owner's original OakScript implementation and executable only to the extent of rights the owner controls. It does not replace or narrow the independent licenses and permissions of the third-party components listed below or the included font. Redistribution rights granted by those licenses remain in force for those components.
+
 - Veldrid 4.9.0, Veldrid.StartupUtilities 4.9.0, Veldrid.SDL2 4.9.0: Eric Mellino and Veldrid contributors, MIT. https://github.com/veldrid/veldrid
 - Vk 1.0.25: Eric Mellino and contributors, MIT. https://github.com/mellinoe/vk
 - NativeLibraryLoader 1.0.13: Eric Mellino and contributors, MIT. https://github.com/mellinoe/nativelibraryloader

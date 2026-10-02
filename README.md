@@ -62,4 +62,10 @@ Controls: Enter starts/resumes; WASD moves; Space jumps; Shift crouches; F toggl
 
 This repository distributes the compiled runner and language documentation. The compiler/runtime implementation source and build tooling are not included here. The Oak Blocks release includes the example game's source files for learning.
 
-Please do not redistribute the executable. Keep `assets/OFL.txt` with the included font when redistributing the example. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for dependency notices.
+## License and redistribution
+
+The OakScript executable and its original compiler/runtime implementation source are covered by the [OakScript Limited Use License — No Redistribution](LICENSE.txt). You may download and run the software on devices you control, including to run your own programs and learn from Oak Blocks. **Redistributing, re-uploading, mirroring, selling, or bundling the executable or its implementation source, including modified versions, requires the owner's prior written permission**, subject to the third-party, statutory, platform, and earlier-license rights described in the license.
+
+You can share links to the official downloads. Your independently authored `.oak` programs and their outputs are not restricted just because they use OakScript; have recipients download the runner here instead of bundling it with your program.
+
+Third-party components keep their own licenses and permissions. The public repository also remains subject to GitHub's viewing/fork rights. See [LICENSE.txt](LICENSE.txt), [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), and [third-party-licenses/](third-party-licenses/). The font retains its separate license in `assets/OFL.txt`.

@@ -1,0 +1,109 @@
+OAKSCRIPT LIMITED USE LICENSE - NO REDISTRIBUTION
+
+Effective date: October 2, 2026
+Copyright (c) 2026 FIRECATCHER404, to the extent of rights held by that owner.
+All such rights are reserved except for the permissions expressly stated here.
+
+Licensor: the owner of https://github.com/FIRECATCHER404/OakScript
+
+1. Covered Software
+
+"Covered Software" means the original OakScript language implementation,
+including its compiler, interpreter, bytecode virtual machine, runtime,
+graphics implementation and associated implementation tooling; oakscript.exe
+and other compiled forms of that implementation; and copies, modifications,
+translations or reconstructed/decompiled forms containing its protected code.
+
+The restrictions below apply only to rights the Licensor actually owns or is
+authorized to license. Third-party components and materials are excluded and
+remain governed by their own licenses. Independently authored Oak programs,
+their outputs, and the language's ideas, syntax and concepts are not Covered
+Software merely because they use OakScript. Standalone example .oak programs
+are not compiler/runtime implementation source merely because they are written
+in Oak. This license does not assign ownership of anyone else's work.
+
+2. Limited Permission to Use
+
+Subject to these terms and section 5, the Licensor permits you to download
+Covered Software from the Licensor's official distribution, install it on
+devices you control, execute it for personal or commercial purposes, and make
+copies reasonably necessary for your own installation and backup. You may
+write and run your own Oak programs. If the Licensor separately makes original
+implementation source available to you, you may inspect it and modify it for
+your own use on devices you control under these same terms.
+
+This is a limited permission to use; it is not an open-source license and does
+not grant permission to distribute Covered Software to other people.
+
+3. Redistribution Prohibited
+
+Except as provided in sections 2, 5 and 6, you must obtain the Licensor's prior
+written permission before you:
+
+- redistribute, publish, upload, re-upload, mirror, share, sell, rent, sublicense
+  or otherwise provide Covered Software or its implementation source code to
+  any other person, whether for free or for payment;
+- distribute a modified, renamed, repackaged, translated, reconstructed or
+  decompiled version containing protected Covered Software code; or
+- bundle Covered Software into another program, game, installer, package,
+  archive, image or other distribution that you provide to others.
+
+These restrictions apply to original implementation source as well as binaries.
+Keeping copyright notices does not by itself grant redistribution permission.
+You may share links to the Licensor's official repository and release downloads
+so that others can obtain their own copies directly from the Licensor.
+
+4. Your Programs and Learning Materials
+
+You retain any rights you hold in independently authored .oak programs and
+their outputs. Using OakScript does not automatically subject those programs
+or outputs to this redistribution restriction. Share them under terms you are
+entitled to choose, with recipients downloading the runner from its official
+distribution rather than receiving a bundled copy from you.
+
+The supplied documentation and example programs, including Oak Blocks, may be
+read, run and adapted locally for learning. This limited learning permission
+does not authorize redistribution of the bundled OakScript executable or its
+implementation source. Any separate rights in example assets or third-party
+material, including the font, remain governed by their applicable licenses.
+
+5. Third-Party, Statutory and Platform Rights
+
+THIRD-PARTY-NOTICES.md, third-party-licenses/ and asset-specific license files
+identify independently licensed components. Their licenses control those
+components, including any use, modification or redistribution rights they grant.
+This license does not replace, revoke or narrow those third-party rights.
+
+Nothing here restricts acts permitted by applicable law independently of this
+license, removes non-waivable rights, or creates copyright in unprotectable
+material. All ownership and reservation statements are limited accordingly.
+
+For material the Licensor makes public on GitHub, viewing and making copies
+through GitHub's public-repository fork functionality remain permitted to the
+extent required by the applicable GitHub Terms of Service. This exception does
+not grant a general permission to redistribute Covered Software outside those
+platform rights. Rights granted to GitHub to operate its service are preserved.
+
+6. Earlier Rights and Separate Permission
+
+This license does not retroactively revoke rights already validly granted
+under an earlier license or separate agreement. Publication of these terms
+does not by itself establish that an earlier recipient accepted a new contract.
+Separate written permissions from the Licensor control to the extent stated
+in those permissions. Merely making a repository public is not a general
+redistribution license beyond the platform rights described in section 5.
+
+7. Warranty and Liability
+
+To the extent applicable law permits, Covered Software is supplied as-is,
+without warranties of fitness, merchantability, accuracy or uninterrupted
+operation. The Licensor accepts no liability for losses arising from its use.
+These exclusions do not remove liability or protections that applicable law
+does not allow the Licensor to exclude.
+
+8. Permission Requests
+
+For redistribution permission, contact the Licensor through the official
+GitHub account or repository. Permission must be given in writing by the
+Licensor; silence, downloading, public visibility and third-party approval do
+not constitute such permission.

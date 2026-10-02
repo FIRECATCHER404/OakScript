@@ -9,6 +9,13 @@ Examples marked BEGIN EXAMPLE / END EXAMPLE are complete source files.
 Save each example using the indicated filename. Graphics examples that mention
 assets require those assets beside the example, as described in section 13.
 
+Runner licensing: see LICENSE.txt. You may use the runner on devices you control,
+but redistributing its executable or original compiler/runtime implementation
+source requires the owner's prior written permission, subject to the independent
+rights described in the license. Your independently authored .oak programs and
+their outputs are not restricted merely because they use OakScript. Share an
+official runner download link rather than bundling the EXE with your programs.
+
 1. RUNNING FILES
 ---------------
 From PowerShell, with oakscript.exe in the current directory:
