@@ -1,0 +1,32 @@
+\# Dedicated PNGs are loaded directly. Replace a file, then restart the game. #\
+list texture_names = ["grass_top", "grass_side", "earth", "stone", "oak_bark", "oak_end", "leaves", "sand", "brick", "lantern"]
+list block_textures = []
+list surfaces = []
+for name in texture_names:(
+    texture image = load_texture("../assets/blocks/"+name+".png")
+    image.filter = <nearest>
+    image.wrap = <clamp>
+    image.mipmap = true
+    material surface = create_material()
+    surface.texture = image
+    surface.name = name
+    append(block_textures,image)
+    append(surfaces,surface)
+)
+
+def surface_index(int block, int face) -> int:(
+    if block == 1:(
+        if face == 3:(return 0)
+        if face == 2:(return 2)
+        return 1
+    )
+    if block == 2:(return 2)
+    if block == 3:(return 3)
+    if block == 4:(
+        if face == 2 or face == 3:(return 5)
+        return 4
+    )
+    return block+1
+)
+
+def icon(int block) -> texture:(return block_textures[surface_index(block,3)])

@@ -1,4 +1,4 @@
-/# Bare names and neighboring filenames refer to the same module. #/
+\# Bare names and neighboring filenames refer to the same module. #\
 from library import *
 from "library.oak" import add
 assert(add(first, 5) == 15)

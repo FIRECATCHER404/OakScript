@@ -1,4 +1,4 @@
-/# Oak stores matrix rows and multiplies column vectors. All rotation angles are degrees. #/
+\# Oak stores matrix rows and multiplies column vectors. All rotation angles are degrees. #\
 mat4 transform=translate((10,0,0))*rotation_y(30)*scale((2,3,4))
 vec4 point=(1,2,3,1)
 println("transformed:",transform*point)

@@ -1,0 +1,32 @@
+\# Edge detection lives in an Oak library; only polling uses key_down(). #\
+type Controls:(
+    bool left = false
+    bool right = false
+    bool jump = false
+    bool jump_pressed = false
+    bool start = false
+    bool start_pressed = false
+    bool pause = false
+    bool pause_pressed = false
+    bool restart = false
+    bool restart_pressed = false
+    bool quit = false
+)
+
+def poll(Controls controls):(
+    controls.left = key_down("A") or key_down("Left")
+    controls.right = key_down("D") or key_down("Right")
+    bool jump_now = key_down("Space") or key_down("W") or key_down("Up")
+    bool start_now = key_down("Enter")
+    bool pause_now = key_down("P")
+    bool restart_now = key_down("R")
+    controls.jump_pressed = key_pressed("Space") or key_pressed("W") or key_pressed("Up") or (jump_now and not controls.jump)
+    controls.start_pressed = key_pressed("Enter") or (start_now and not controls.start)
+    controls.pause_pressed = key_pressed("P") or (pause_now and not controls.pause)
+    controls.restart_pressed = key_pressed("R") or (restart_now and not controls.restart)
+    controls.jump = jump_now
+    controls.start = start_now
+    controls.pause = pause_now
+    controls.restart = restart_now
+    controls.quit = key_down("Escape") or key_pressed("Escape")
+)

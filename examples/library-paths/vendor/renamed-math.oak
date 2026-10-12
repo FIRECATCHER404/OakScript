@@ -1,0 +1,1 @@
+def square(float value) -> float:(return value*value)

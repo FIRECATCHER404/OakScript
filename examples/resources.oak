@@ -1,4 +1,4 @@
-/# Resources can be loaded and inspected without opening a window. #/
+\# Resources can be loaded and inspected without opening a window. #\
 texture image = load_texture("assets/checker")
 image.filter = <nearest>
 image.wrap = <repeat>

@@ -1,0 +1,57 @@
+\# Test-only controller: exercises the same update() and Controls used by the game.
+   No warping, injected scores, or native input replacement in main.oak. #\
+from "game.oak" import Game;reset;update;PLAYING;WON
+from "input.oak" import Controls
+
+def travel(Game game, Controls controls, float x, float surface_y, bool jump):(
+    controls.jump = jump
+    controls.jump_pressed = jump
+    for frame in range(960):(
+        float remaining = x - game.player.x
+        controls.right = remaining > 10
+        controls.left = remaining < -10
+        update(game, controls, 1.0 / 120.0)
+        controls.jump_pressed = false
+        if frame > 5 and abs(game.player.x-x) < 17 and game.player.grounded and abs(game.player.y+34-surface_y) < 1:(
+            assert(game.hearts == 3, "Test route took damage")
+            return
+        )
+        if game.stage == WON:(return)
+    )
+    assert(false, "Route could not reach " + string(x) + "," + string(surface_y) + "; ended at " + string(game.player.x) + "," + string(game.player.y+34))
+)
+
+def complete_trail(Game game):(
+    reset(game)
+    game.stage = <playing>
+    Controls controls = Controls()
+    travel(game, controls, 196, 550, false)
+    travel(game, controls, 196, 550, true)
+    assert(game.score == 1, "First acorn")
+    travel(game, controls, 346, 455, true)
+    assert(game.score == 2, "Second acorn")
+    travel(game, controls, 531, 368, true)
+    assert(game.score == 3, "Third acorn")
+    travel(game, controls, 696, 465, true)
+    assert(game.score == 4, "Fourth acorn")
+    travel(game, controls, 752, 465, false)
+    travel(game, controls, 960, 550, true)
+    travel(game, controls, 1071, 445, true)
+    assert(game.score == 5, "Fifth acorn")
+    travel(game, controls, 1140, 445, false)
+    travel(game, controls, 1346, 372, true)
+    assert(game.score == 6, "Sixth acorn")
+    travel(game, controls, 1516, 550, false)
+    assert(game.score == 7, "Seventh acorn")
+    travel(game, controls, 1687, 550, false)
+    travel(game, controls, 1901, 465, true)
+    assert(game.score == 8, "Eighth acorn")
+    travel(game, controls, 2010, 465, false)
+    travel(game, controls, 2186, 430, true)
+    assert(game.score == 9, "Ninth acorn")
+    travel(game, controls, 2245, 430, false)
+    travel(game, controls, 2426, 360, true)
+    assert(game.score == 10, "Tenth acorn")
+    travel(game, controls, 2595, 550, false)
+    assert(game.stage == WON, "Test route must win")
+)

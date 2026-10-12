@@ -1,0 +1,18 @@
+\ A CPU program that compiles directly to a native Windows executable.
+\ oakscript compile examples/native-math.oak -o native-math.exe
+\ ./native-math.exe 1000000
+def square(float value) -> float:(return value * value)
+
+def __main__(list arguments) -> int:(
+    int limit=100000
+    if len(arguments)>0:(limit=int(arguments[0]))
+    int checksum=0
+    for x in range(limit):(
+        checksum+=(x & 255) * (x & 255)
+    )
+    assert(square(1.5)==2.25)
+    assert(3 * 0.25==0.75 and 0.25 * 3==0.75)
+    println("Checksum:",checksum)
+    println("Fractional product:",square(1.5))
+    return 0
+)

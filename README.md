@@ -1,10 +1,14 @@
 # OakScript
 
-OakScript (Oak) is a programming language with a portable Windows x64 file runner, an optimizing bytecode VM, typed records, modules, package support, and built-in Vulkan graphics, input, audio, and GPU compute. The current runner is **0.4.0**.
+OakScript (Oak) is a programming language with a portable Windows x64 file runner, an optimizing bytecode VM, native compilation, typed records, modules, package support, and built-in Vulkan graphics, input, audio, and GPU compute. The current runner is **0.8.1**.
 
 Read [SYNTAX.txt](SYNTAX.txt) for the complete implemented syntax, every built-in function and resource attribute, and runnable examples.
 
-## New in 0.4.0
+## Current features
+
+- Native compilation for CPU, 2D/3D graphics, audio and compute, with no interpreter fallback; see [native compilation](docs/NATIVE_COMPILATION.md) for coverage and limits.
+- Collections, recoverable errors, lazy iteration, flexible functions, string formatting, bitwise operators and lexical eval/exec/evxec.
+- Source debugging in VS Code, manual pixel presentation and complete canvas capture, plus optional NVIDIA CUDA rendering for built-in 3D drawing.
 
 - Vulkan frame fences and reusable geometry, shaders, pipelines, textures, and descriptors reduce synchronization and repeated uploads.
 - General WAV audio: sound loading, playback, looping, volume, pitch, stereo pan, positional sound and attenuation, bounded music streaming, and nested audio buses.
@@ -20,7 +24,7 @@ See [docs/ADVANCED_API.txt](docs/ADVANCED_API.txt) for signatures and resource a
 
 ## Download and run
 
-Download the repository using **Code > Download ZIP**, then extract it. This keeps [oakscript.exe](oakscript.exe), [LICENSE.txt](LICENSE.txt), [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), and [third-party-licenses/](third-party-licenses/) together. The portable [OakScript-0.4.0-win-x64.zip](https://github.com/FIRECATCHER404/OakScript/releases/download/v0.4.0/OakScript-0.4.0-win-x64.zip) bundle includes the runner, documentation, examples, and example assets. Both are available from [the 0.4.0 release](https://github.com/FIRECATCHER404/OakScript/releases/tag/v0.4.0).
+Download the Windows x64 ZIP from [the latest release](https://github.com/FIRECATCHER404/OakScript/releases/latest), then extract it. The 0.8.1 bundle includes the runner, current documentation, example sources and assets, [LICENSE.txt](LICENSE.txt), [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), and [third-party-licenses/](third-party-licenses/). Keep these files together.
 
 Once downloaded you can run the following with the Executable:
 
@@ -76,13 +80,13 @@ The release also includes [AcornRun.zip](https://github.com/FIRECATCHER404/OakSc
 
 ## VS Code extension
 
-Download [oakscript-0.4.0.vsix](https://github.com/FIRECATCHER404/OakScript/releases/download/v0.4.0/oakscript-0.4.0.vsix), then use **Extensions > ... > Install from VSIX** in VS Code, or run:
+Download [oakscript-0.8.1.vsix](https://github.com/FIRECATCHER404/OakScript/releases/download/v0.8.1/oakscript-0.8.1.vsix), then use **Extensions > ... > Install from VSIX** in VS Code, or run:
 
 ```cmd
-code --install-extension oakscript-0.4.0.vsix
+code --install-extension oakscript-0.8.1.vsix
 ```
 
-The Windows x64 extension includes the current runner, syntax highlighting, diagnostics, completion, hover, definitions, symbols, and **OakScript: Run File / Check File** commands. It requires VS Code 1.85 or newer.
+The Windows x64 extension includes the current runner, syntax highlighting, diagnostics, completion, hover, definitions, symbols, and **OakScript: Run File / Check File** commands and VS Code Run and Debug integration with source breakpoints, stepping and watches. It requires VS Code 1.85 or newer.
 
 ## Distribution contents
 

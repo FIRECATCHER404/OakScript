@@ -1,4 +1,4 @@
-OAKSCRIPT 0.4.0 - AUDIO, MATH, WINDOWS, COMPUTE AND LIGHTING
+OAKSCRIPT 0.7.0 - AUDIO, MATH, WINDOWS, COMPUTE AND LIGHTING
 
 This reference supplements the core syntax in SYNTAX.txt. The APIs are general
 runtime facilities; none depend on Oak Blocks or other game-specific code.
@@ -161,6 +161,10 @@ close_window releases capture and hides the window. Closed handles cannot be
 selected again. GPU resources remain owned until interpreter cleanup so live
 compute resources may continue to refer to their original device.
 --capture captures the first window created, even if another is selected.
+--frames -1 --capture failure.png runs without a frame limit and writes the
+first window's full current canvas only after explicit exit(1), flushing pending
+drawing before saving. Entry returns and runtime errors do not request capture.
+Other exits preserve existing files; programs with no window write no PNG.
 
 graphics_stats indices: 0 completed frames; 1 buffer uploads; 2 texture uploads;
 3 graphics pipeline count; 4 cached surface descriptor count; 5 shadow face

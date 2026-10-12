@@ -1,0 +1,96 @@
+\# A finite creative world. All storage, generation and edits are Oak code. #\
+int SIZE = 32
+int HEIGHT = 24
+int CHUNK = 8
+int CHUNKS = 4
+list block_names = ["Air", "Grass", "Earth", "Stone", "Oak", "Leaves", "Sand", "Brick", "Lantern"]
+list block_colors = [(116,174,83), (135,94,65), (151,161,171), (155,111,67), (90,151,76), (225,205,149), (181,101,80), (255,217,128)]
+
+type World:(
+    list cells = []
+    list dirty = []
+    int edits = 0
+)
+
+def inside(int x, int y, int z) -> bool:(
+    return x >= 0 and z >= 0 and y >= 0 and x < SIZE and z < SIZE and y < HEIGHT
+)
+
+def index(int x, int y, int z) -> int:(return (y * SIZE + z) * SIZE + x)
+
+def empty(World world):(
+    world.cells = []
+    for i in range(SIZE * HEIGHT * SIZE):(append(world.cells, 0))
+    world.dirty = []
+    for i in range(CHUNKS * CHUNKS):(append(world.dirty, true))
+    world.edits = 0
+)
+
+def get(World world, int x, int y, int z) -> int:(
+    if not inside(x, y, z):(return 0)
+    return world.cells[index(x,y,z)]
+)
+
+def solid(World world, int x, int y, int z) -> bool:(return get(world,x,y,z) != 0)
+
+def raw_set(World world, int x, int y, int z, int block):(
+    if inside(x,y,z):(world.cells[index(x,y,z)] = block)
+)
+
+def change(World world, int x, int y, int z, int block) -> bool:(
+    if not inside(x,y,z) or block < 0 or block > 8:(return false)
+    if get(world,x,y,z) == block:(return false)
+    raw_set(world,x,y,z,block)
+    \# One-block AO samples can cross diagonal chunk borders as well. #\
+    for cz in range(int(floor((z-1)/8.0)), int(floor((z+1)/8.0))+1):(
+        for cx in range(int(floor((x-1)/8.0)), int(floor((x+1)/8.0))+1):(
+            if cx >= 0 and cx < CHUNKS and cz >= 0 and cz < CHUNKS:(world.dirty[cz*CHUNKS+cx] = true)
+        )
+    )
+    world.edits += 1
+    return true
+)
+
+def surface_height(int x, int z) -> int:(
+    if x >= 9 and x <= 23 and z >= 3 and z <= 14:(return 5)
+    return int(floor(5.8 + sin(x*0.19)*1.6 + cos(z*0.22)*1.3 + sin((x+z)*0.31)*0.8))
+)
+
+def tree(World world, int x, int z):(
+    int root = surface_height(x,z) + 1
+    for y in range(root,root+5):(raw_set(world,x,y,z,4))
+    for y in range(root+3,root+7):(
+        int radius = 2
+        if y == root+6:(radius = 1)
+        for dz in range(-radius,radius+1):(
+            for dx in range(-radius,radius+1):(
+                if abs(dx)+abs(dz) <= radius+1 and not solid(world,x+dx,y,z+dz):(
+                    raw_set(world,x+dx,y,z+dz,5)
+                )
+            )
+        )
+    )
+)
+
+def generate(World world):(
+    empty(world)
+    for z in range(SIZE):(
+        for x in range(SIZE):(
+            int top = surface_height(x,z)
+            for y in range(top+1):(
+                int block = 3
+                if y >= top-2:(block = 2)
+                if y == top:(block = 1)
+                if y == top and ((x >= 15 and x <= 17) or (z >= 11 and z <= 12)):(block = 6)
+                raw_set(world,x,y,z,block)
+            )
+        )
+    )
+    tree(world,5,8); tree(world,5,21); tree(world,12,24)
+    tree(world,24,20); tree(world,27,7); tree(world,26,27)
+    \# A brick arch and material samples give the clearing some landmarks. #\
+    for y in range(6,9):(raw_set(world,20,y,15,7); raw_set(world,23,y,15,7))
+    for x in range(20,24):(raw_set(world,x,9,15,7))
+    raw_set(world,20,10,15,8); raw_set(world,23,10,15,8)
+    raw_set(world,11,6,17,4); raw_set(world,12,6,17,3); raw_set(world,13,6,17,8)
+)

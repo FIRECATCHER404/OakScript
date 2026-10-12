@@ -1,0 +1,73 @@
+from "lib/formula.oak" import FormulaNode;Sample;compile_formula;color_number;number_color;xy_power;xy_bitwise;rgb_bitwise;RGB_MODULUS
+from "lib/arguments.oak" import dimensions;progress_bar
+
+def usage():(
+    println("Usage: oakscript pixels.oak \"formula\" \"(width,height)\"")
+    println("Example: oakscript pixels.oak \"x&y\" \"(800,600)\"")
+    println("Operators: ** power; ^ XOR; & AND; | OR; == != < <= > >= comparisons (0/1). Bitwise operands must be integers.")
+    println("x/y are zero-based pixel coordinates. Escape closes the window.")
+)
+if argc == 1 and args[0] == "--help":(usage(); exit(0))
+if argc != 2:(usage(); exit(2))
+list screen = dimensions(args[1],2)
+int width = screen[0]
+int height = screen[1]
+assert(width*height <= 16777216,"The image is limited to 16,777,216 pixels; choose smaller dimensions.")
+FormulaNode formula = compile_formula(args[0],false)
+bool power_pattern = xy_power(formula)
+int bit_pattern = xy_bitwise(formula)
+list power_row = []
+if power_pattern:(for x in range(width):(append(power_row,1)))
+list rgba = []
+int next_row = 0
+int invalid_pixels = 0
+bool complete = false
+list finished_texture = []
+float started = time()
+window_handle canvas = create_window("Oak Formula Pixels - "+args[0],width,height)
+println("Rendering",width,"x",height,"pixels. Escape cancels.")
+
+def generate_rows():(
+    int end_row = min(height,next_row+max(1,int(8192/width)))
+    for y in range(next_row,end_row):(
+        for x in range(width):(
+            int value = 0
+            if power_pattern:(
+                \# Consecutive rows evaluate x**y using its exact modular recurrence. #\
+                value = power_row[x]
+                power_row[x] = value*x%RGB_MODULUS
+            )
+            elif bit_pattern != 0:(value = rgb_bitwise(x,y,bit_pattern))
+            else:(
+                Sample sample = color_number(formula,x,y,0)
+                if sample.valid:(value = int(sample.value))
+                else:(invalid_pixels += 1)
+            )
+            color pixel = number_color(value)
+            append(rgba,pixel.r); append(rgba,pixel.g); append(rgba,pixel.b); append(rgba,255)
+        )
+    )
+    next_row = end_row
+    if next_row == height:(
+        gpu_image image = create_image(width,height)
+        write_image(image,rgba)
+        texture picture = compute_texture(image)
+        picture.filter = <nearest>
+        picture.wrap = <clamp>
+        append(finished_texture,picture)
+        \# Release the temporary CPU list after its one upload. #\
+        rgba = []
+        power_row = []
+        complete = true
+        println("Complete:",width*height,"pixels in",round((time()-started)*1000),"ms.")
+        if invalid_pixels > 0:(println("Undefined/out-of-range samples rendered black:",invalid_pixels))
+    )
+)
+def draw():(
+    if key_pressed("Escape"):(close_window(); return)
+    if not complete:(generate_rows())
+    clear((14,20,30))
+    vec2 size = window_size()
+    if complete:(texture_blit(finished_texture[0],0,0,size.x,size.y))
+    else:(progress_bar(float(next_row)/height,size))
+)

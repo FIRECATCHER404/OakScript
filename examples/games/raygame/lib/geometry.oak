@@ -1,0 +1,273 @@
+from "world.oak" import Body;World
+type Contact:(bool hit=false; vec3 normal=(0,1,0); float depth=0.0; vec3 point=(0,0,0))
+type Hit:(bool found=false; vec3 point=(0,0,0); vec3 normal=(0,1,0); float distance=0.0; int id=-1)
+vec3 UP=(0,1,0)
+def vabs(vec3 p)->vec3:(return vec3(abs(p.x),abs(p.y),abs(p.z)))
+def vclamp(vec3 p,vec3 h)->vec3:(return vec3(clamp(p.x,-h.x,h.x),clamp(p.y,-h.y,h.y),clamp(p.z,-h.z,h.z)))
+def safe_normal(vec3 p,vec3 fallback=vec3(0,1,0))->vec3:(if dot(p,p)<0.00000001:(return fallback);return normalize(p))
+def axes(Body b)->list:(return [b.rotation*vec3(1,0,0),b.rotation*UP,b.rotation*vec3(0,0,1)])
+def support(Body b,vec3 direction)->vec3:(
+    if b.shape==0:(return b.position+safe_normal(direction)*b.size.x)
+    vec3 d=conjugate(b.rotation)*direction
+    if b.shape==2:(return b.position+b.rotation*vec3(0,(2*int(d.y>=0)-1)*b.size.y,0)+safe_normal(direction)*b.size.x)
+    vec3 p=vec3((int(d.x>0)-int(d.x<0))*b.size.x,(int(d.y>0)-int(d.y<0))*b.size.y,(int(d.z>0)-int(d.z<0))*b.size.z)
+    return b.position+b.rotation*p
+)
+def sdf(Body b,vec3 point)->float:(
+    if b.shape==0:(return length(point-b.position)-b.size.x)
+    vec3 p=conjugate(b.rotation)*(point-b.position)
+    if b.shape==2:(p.y-=clamp(p.y,-b.size.y,b.size.y);return length(p)-b.size.x)
+    vec3 d=vabs(p)-b.size
+    return length(vec3(max(d.x,0),max(d.y,0),max(d.z,0)))+min(max(d.x,max(d.y,d.z)),0)
+)
+def body_distance(list bodies,vec3 point)->tuple:(
+    float distance=point.y; int id=-1
+    for b in bodies:(
+        if length(point-b.position)-b.bound>distance:(continue)
+        float value=sdf(b,point)
+        if value<distance:(distance=value;id=b.id)
+    )
+    return (distance,id)
+)
+def scene_distance(World world,vec3 point)->tuple:(return body_distance(world.bodies,point))
+
+\ Conservative broad phase for the whole viewing segment, performed once
+\ rather than testing every distant body at every raymarch step.
+def ray_candidates(World world,vec3 origin,vec3 direction,float limit)->list:(
+    list result=[]
+    for body in world.bodies:(
+        vec3 relative=body.position-origin
+        float along=clamp(dot(relative,direction),0.0,limit)
+        vec3 separation=relative-direction*along
+        if dot(separation,separation)<=(body.bound+0.002)**2:(append(result,body))
+    )
+    return result
+)
+def cast(World world,vec3 origin,vec3 direction,float limit=2.0)->Hit:(
+    direction=safe_normal(direction,vec3(0,0,1))
+    list candidates=ray_candidates(world,origin,direction,limit)
+    float t=0.0
+    for iteration in range(220):(
+        vec3 point=origin+direction*t
+        tuple sample=body_distance(candidates,point)
+        float d=sample[0]
+        if abs(d)<0.0007:(
+            vec3 normal=UP
+            if sample[1]>=0:(
+                for body in candidates:(if body.id==sample[1]:(
+                    float e=0.001
+                    normal=safe_normal(vec3(sdf(body,point+vec3(e,0,0))-sdf(body,point-vec3(e,0,0)),sdf(body,point+vec3(0,e,0))-sdf(body,point-vec3(0,e,0)),sdf(body,point+vec3(0,0,e))-sdf(body,point-vec3(0,0,e))))
+                    break
+                ))
+            )
+            return Hit(true,point,normal,t,sample[1])
+        )
+        t+=max(abs(d)*0.9,0.0005)
+        if t>limit:(break)
+    )
+    return Hit(false,origin+direction*limit,UP,limit,-1)
+)
+def segments(Body b)->tuple:(
+    if b.shape==0:(return (b.position,b.position))
+    vec3 offset=b.rotation*vec3(0,b.size.y,0)
+    return (b.position-offset,b.position+offset)
+)
+def closest_segments(vec3 a,vec3 b,vec3 c,vec3 d)->tuple:(
+    vec3 u=b-a; vec3 v=d-c; vec3 r=a-c
+    float aa=dot(u,u); float ee=dot(v,v); float ff=dot(v,r)
+    float s=0.0;float t=0.0
+    if aa<0.0000001 and ee<0.0000001:(return (a,c))
+    if aa<0.0000001:(t=clamp(ff/ee,0,1))
+    else:(
+        float cc=dot(u,r)
+        if ee<0.0000001:(s=clamp(-cc/aa,0,1))
+        else:(
+            float bb=dot(u,v); float denom=aa*ee-bb*bb
+            if denom>0.0000001:(s=clamp((bb*ff-cc*ee)/denom,0,1))
+            t=(bb*s+ff)/ee
+            if t<0:(t=0.0;s=clamp(-cc/aa,0,1))
+            if t>1:(t=1.0;s=clamp((bb-cc)/aa,0,1))
+        )
+    )
+    return (a+u*s,c+v*t)
+)
+\ Exact closest point for a segment and an axis-aligned box. The squared
+\ distance is a convex quadratic between the six slab-crossing parameters.
+def segment_box(vec3 a,vec3 b,vec3 h)->tuple:(
+    vec3 d=b-a; list cuts=[0.0,1.0]
+    for pair in [(a.x,d.x,h.x),(a.y,d.y,h.y),(a.z,d.z,h.z)]:(
+        if abs(pair[1])>0.0000001:(
+            for bound in [-pair[2],pair[2]]:(
+                float t=(bound-pair[0])/pair[1]
+                if t>0 and t<1:(append(cuts,t))
+            )
+        )
+    )
+    for i in range(1,len(cuts)):(
+        int j=i
+        while j>0 and cuts[j]<cuts[j-1]:(float tmp=cuts[j];cuts[j]=cuts[j-1];cuts[j-1]=tmp;j-=1)
+    )
+    float best=100000000.0; vec3 point=a; vec3 box=vclamp(a,h)
+    for i in range(len(cuts)-1):(
+        float mid=(cuts[i]+cuts[i+1])*0.5;vec3 p=a+d*mid
+        float numerator=0.0;float denominator=0.0
+        for pair in [(p.x,a.x,d.x,h.x),(p.y,a.y,d.y,h.y),(p.z,a.z,d.z,h.z)]:(
+            if abs(pair[0])>pair[3]:(
+                float edge=(2*int(pair[0]>0)-1)*pair[3]
+                numerator+=pair[2]*(pair[1]-edge);denominator+=pair[2]*pair[2]
+            )
+        )
+        float t=mid
+        if denominator>0.0000001:(t=clamp(-numerator/denominator,cuts[i],cuts[i+1]))
+        vec3 candidate=a+d*t;vec3 closest=vclamp(candidate,h)
+        float distance=dot(candidate-closest,candidate-closest)
+        if distance<best:(best=distance;point=candidate;box=closest)
+    )
+    return (point,box)
+)
+def round_box(Body a,Body b)->Contact:(
+    tuple ends=segments(a)
+    quat inverse=conjugate(b.rotation)
+    tuple closest=(vec3(0,0,0),vec3(0,0,0))
+    if a.shape==0:(vec3 center=inverse*(a.position-b.position);closest=(center,vclamp(center,b.size)))
+    else:(closest=segment_box(inverse*(ends[0]-b.position),inverse*(ends[1]-b.position),b.size))
+    vec3 delta=closest[0]-closest[1];float distance=length(delta)
+    if distance>a.size.x+0.002:(return Contact())
+    vec3 normal=(0,1,0);float depth=a.size.x-distance;vec3 point=closest[1]
+    if distance>0.000001:(normal=delta/distance)
+    else:(
+        vec3 gap=b.size-vabs(closest[0])
+        if gap.x<=gap.y and gap.x<=gap.z:(normal=vec3(2*int(closest[0].x>=0)-1,0,0);depth=a.size.x+gap.x)
+        else:(if gap.y<=gap.z:(normal=vec3(0,2*int(closest[0].y>=0)-1,0);depth=a.size.x+gap.y)
+        else:(normal=vec3(0,0,2*int(closest[0].z>=0)-1);depth=a.size.x+gap.z))
+        point=closest[0]+normal*(depth-a.size.x)
+    )
+    return Contact(true,b.rotation*normal,depth,b.position+b.rotation*point)
+)
+def clip_face(list points,vec3 origin,vec3 axis,float extent)->list:(
+    list result=[]
+    if len(points)==0:(return result)
+    vec3 previous=points[-1]
+    float before=dot(previous-origin,axis)-extent
+    if abs(before)<0.000000001:(before=0.0)
+    for point in points:(
+        float after=dot(point-origin,axis)-extent
+        if abs(after)<0.000000001:(after=0.0)
+        if (before<=0)!=(after<=0):(
+            append(result,previous+(point-previous)*(before/(before-after)))
+        )
+        if after<=0:(append(result,point))
+        previous=point;before=after
+    )
+    return result
+)
+
+\ Clip the incident box face against the reference face. Averaging two support
+\ points can put a contact outside the smaller box on a broad platform, giving
+\ friction an enormous false lever arm. The overlap centroid stays on the faces.
+def box_face_vertices(Body reference,Body incident,list ref_axes,list inc_axes,int face,vec3 outward)->tuple:(
+    list ref_size=[reference.size.x,reference.size.y,reference.size.z]
+    list inc_size=[incident.size.x,incident.size.y,incident.size.z]
+    int opposite=0
+    for i in range(1,3):(
+        if abs(dot(inc_axes[i],outward))>abs(dot(inc_axes[opposite],outward)):(opposite=i)
+    )
+    vec3 center=incident.position-inc_axes[opposite]*((2*int(dot(inc_axes[opposite],outward)>=0)-1)*inc_size[opposite])
+    int u=(opposite+1)%3;int v=(opposite+2)%3
+    list points=[center+inc_axes[u]*(pair[0]*inc_size[u])+inc_axes[v]*(pair[1]*inc_size[v]) for pair in [(-1,-1),(1,-1),(1,1),(-1,1)]]
+    for side in range(3):(
+        if side==face:(continue)
+        points=clip_face(points,reference.position,ref_axes[side],ref_size[side])
+        points=clip_face(points,reference.position,-ref_axes[side],ref_size[side])
+    )
+    vec3 plane=reference.position+outward*ref_size[face]
+    points=clip_face(points,plane,outward,0.002)
+    return (points,plane)
+)
+
+def box_face_point(Body reference,Body incident,list ref_axes,list inc_axes,int face,vec3 outward)->vec3:(
+    tuple clipped=box_face_vertices(reference,incident,ref_axes,inc_axes,face,outward)
+    list points=clipped[0];vec3 plane=clipped[1]
+    if len(points)==0:(return (support(reference,outward)+support(incident,-outward))*0.5)
+    vec3 sum=(0,0,0)
+    for point in points:(sum+=point-outward*(dot(point-plane,outward)*0.5))
+    return sum/len(points)
+)
+
+\ Face contacts retain their corners so a resting box can resist rocking.
+def contact_points(Body a,Body b,Contact hit)->list:(
+    if not hit.hit:(return [])
+    if a.shape!=1 or b.shape!=1:(return [hit])
+    list ax=axes(a);list bx=axes(b)
+    tuple clipped=([],vec3(0,0,0));vec3 outward=-hit.normal
+    bool face=false
+    for i in range(3):(
+        if abs(dot(ax[i],hit.normal))>0.99999:(clipped=box_face_vertices(a,b,ax,bx,i,outward);face=true;break)
+    )
+    if not face:(
+        outward=hit.normal
+        for i in range(3):(
+            if abs(dot(bx[i],hit.normal))>0.99999:(clipped=box_face_vertices(b,a,bx,ax,i,outward);face=true;break)
+        )
+    )
+    if not face or len(clipped[0])==0:(return [hit])
+    return [Contact(true,hit.normal,-dot(point-clipped[1],outward),point-outward*(dot(point-clipped[1],outward)*0.5)) for point in clipped[0]]
+)
+
+def contact(Body a,Body b)->Contact:(
+    vec3 separation=a.position-b.position
+    if dot(separation,separation)>(a.bound+b.bound+0.003)**2:(return Contact())
+    if a.shape==0 and b.shape==0:(
+        float distance=length(separation);float sum=a.size.x+b.size.x
+        if distance>sum+0.002:(return Contact())
+        vec3 normal=safe_normal(separation)
+        return Contact(true,normal,sum-distance,(a.position-normal*a.size.x+b.position+normal*b.size.x)*0.5)
+    )
+    if a.shape!=1 and b.shape!=1:(
+        tuple aa=segments(a);tuple bb=segments(b);tuple close=closest_segments(aa[0],aa[1],bb[0],bb[1])
+        vec3 delta=close[0]-close[1];float distance=length(delta);float sum=a.size.x+b.size.x
+        if distance>sum+0.002:(return Contact())
+        vec3 normal=safe_normal(delta)
+        return Contact(true,normal,sum-distance,(close[0]-normal*a.size.x+close[1]+normal*b.size.x)*0.5)
+    )
+    if a.shape!=1:(return round_box(a,b))
+    if b.shape!=1:(Contact hit=round_box(b,a);hit.normal=-hit.normal;return hit)
+    list ax=axes(a);list bx=axes(b);list tests=[*ax,*bx]
+    for x in ax:(for y in bx:(append(tests,cross(x,y))))
+    float best=1000000.0;vec3 normal=UP;int feature=0
+    for index in range(len(tests)):(
+        vec3 axis=tests[index]
+        if dot(axis,axis)<0.00000001:(continue)
+        axis=normalize(axis)
+        float ra=abs(dot(ax[0],axis))*a.size.x+abs(dot(ax[1],axis))*a.size.y+abs(dot(ax[2],axis))*a.size.z
+        float rb=abs(dot(bx[0],axis))*b.size.x+abs(dot(bx[1],axis))*b.size.y+abs(dot(bx[2],axis))*b.size.z
+        float depth=ra+rb-abs(dot(separation,axis))
+        if depth< -0.002:(return Contact())
+        \ Prefer a face on numerical ties; nearly parallel edge axes must
+        \ not change a resting face into an arbitrary edge contact.
+        if depth<best-0.0000001:(best=depth;normal=axis*(2*int(dot(separation,axis)>=0)-1);feature=index)
+    )
+    vec3 point=(support(a,-normal)+support(b,normal))*0.5
+    if feature<3:(point=box_face_point(a,b,ax,bx,feature,-normal))
+    else:(if feature<6:(point=box_face_point(b,a,bx,ax,feature-3,normal)))
+    return Contact(true,normal,best,point)
+)
+def clear(World world,list parts,vec3 origin)->bool:(
+    for part in parts:(
+        vec3 original=part.position;part.position=original+origin
+        bool free=support(part,-UP).y>=0.0001
+        if free:(for body in world.bodies:(
+            Contact hit=contact(part,body)
+            if hit.hit and hit.depth> -0.0002:(free=false;break)
+        ))
+        part.position=original
+        if not free:(return false)
+    )
+    return true
+)
+def placement(World world,list parts,vec3 camera,vec3 direction,Hit hit)->vec3:(
+    if not hit.found or hit.distance>2.0:(return camera+direction*2.0)
+    float extent=-1000.0
+    for part in parts:(extent=max(extent,-dot(support(part,-hit.normal),hit.normal)))
+    return hit.point+hit.normal*(extent+0.004)
+)

@@ -1,0 +1,194 @@
+from "lib/formula.oak" import FormulaNode;Sample;compile_formula;numeric;color_number;number_color;hex_color;modular_power
+from "lib/arguments.oak" import dimensions
+from "lib/navigation.oak" import frame_view;move_camera
+
+int checks = 0
+def equal(string source, float expected):(
+    Sample result = numeric(compile_formula(source,true),3,4,5)
+    assert(result.valid and abs(result.value-expected) <= max(1,abs(expected))*1e-12,"Unexpected result for "+source)
+    checks += 1
+)
+equal("x+y*z",23)
+equal("(x+y)*z",35)
+equal("2^3^2",3)
+equal("2**3**2",512)
+equal("-2**2",-4)
+equal("(-2)**2",4)
+equal("2**-2",0.25)
+equal(".5 + 1.5e1",15.5)
+equal("sqrt(x**2+y**2)",5)
+equal("pow(x,2)+pow(y,2)",25)
+equal("sin(pi/2)+cos(0)",2)
+equal("abs(-5)+floor(2.9)+ceil(2.1)",10)
+equal("min(x,y)+max(y,z)",8)
+equal("clamp(z,0,2)",2)
+equal("log(e)+log10(1000)",4)
+equal("exp(1)",2.718281828459045)
+equal("3.5**2.5",22.91765149399039)
+equal("-5%3",-2)
+equal("x&y",0)
+equal("x^y",7)
+equal("x|y",7)
+equal("1|2^3&1",3)
+equal("2+3&6",4)
+equal("2**3^2",10)
+equal("2^3**2",11)
+equal("-1&255",255)
+equal("-2^5",-5)
+equal("-8|3",-5)
+equal("-5&-3",-7)
+equal("-5^-3",6)
+equal("-5|-3",-1)
+equal("max(x&y,z|1)",5)
+equal("(x|y)&z",5)
+equal("floor(3.9)&2",2)
+equal("ceil(2.1)^round(1.8)",1)
+equal("clamp(x,0,255)&y",0)
+equal("min(x,4.5)&7",3)
+equal("9007199254740991&255",255)
+equal("-9007199254740991^255",-9007199254740738)
+equal("floor(-9007199254740992)|9007199254740991",-1)
+equal("x == 3",1)
+equal("x == y",0)
+equal("x != y",1)
+equal("x != 3",0)
+equal("x < y",1)
+equal("y < x",0)
+equal("x <= x",1)
+equal("y <= x",0)
+equal("z > y",1)
+equal("x > y",0)
+equal("z >= z",1)
+equal("x >= y",0)
+equal("1.5 == 1.5",1)
+equal("1.5 != 1.5",0)
+equal("1.5 < 2",1)
+equal("1.5 <= 1.5",1)
+equal("1e299 < 1e300",1)
+equal("x&y&z == 1",0)
+equal("0-(x&y&z == 1)",0)
+equal("x&y == 0|1",0)
+equal("x == y&3",0)
+equal("x|y > z",1)
+equal("x^y >= z",1)
+equal("1 < x < y <= z",1)
+equal("x < y > z",0)
+equal("x == 3 != y < z",1)
+equal("x == y == z",0)
+equal("0 < x&z < y|z",1)
+equal("3 < 2 < 1/0",0)
+equal("1 > 2 < sqrt(-1)",0)
+equal("(x<y)&(y<z)",1)
+equal("(x>y)|(y<z)",1)
+equal("(x<y)^(y<z)",0)
+equal("(1.5<2)&1",1)
+equal("(x+y)*(z==5)",7)
+equal("(x+y)*(z!=5)",0)
+equal("2-(x<y)",1)
+equal("abs(z==5)",1)
+equal("min(x<y,z>y)",1)
+equal("max(x>y,z<y)",0)
+equal("clamp(x<y,0,1)",1)
+equal("(x<y)**3",1)
+equal("floor(0.5)<ceil(0.5)",1)
+equal("16777216==0",0)
+equal("16777216>0",1)
+for source in ["1/(x-x)","sqrt(-1)","log(0)","0**-1","(-2)**0.5","1e200*1e200","10**400","clamp(x,5,2)","(2**(x-4))&255","max(x,4.5)&7","9007199254740992&255"]:(
+    assert(not numeric(compile_formula(source,true),3,4,5).valid,"Expected an undefined sample: "+source)
+    checks += 1
+)
+for source in ["1/0==0","sqrt(-1)!=0","1<2<1/0","1<2<sqrt(-1)","2**1000==0"]:(
+    FormulaNode node = compile_formula(source,true)
+    assert(not numeric(node,3,4,5).valid,"Comparison must preserve invalid operands: "+source)
+    assert(not color_number(node,3,4,5).valid,"Color comparisons must preserve invalid operands: "+source)
+    checks += 1
+)
+for coordinates in [(1,1,1),(1,3,5),(0,1,1),(2,3,5)]:(
+    Sample mask = numeric(compile_formula("0-(x&y&z == 1)",true),*coordinates)
+    int expected = 0
+    if coordinates[0] == 1:(expected = -1)
+    assert(mask.valid and mask.integer and mask.value == expected,"Comparison masks must return numeric 0/1.")
+    checks += 1
+)
+for source in ["x<y","x<y<z","(1.5<2)&1"]:(
+    assert(numeric(compile_formula(source,true),3,4,5).integer,"Comparisons must be integer-valued.")
+    checks += 1
+)
+list screen = dimensions(" (800, 600) ",2)
+assert(len(screen) == 2 and screen[0] == 800 and screen[1] == 600); checks += 1
+list bounds = dimensions("[12,13,14,]",3)
+assert(len(bounds) == 3 and bounds[0] == 12 and bounds[1] == 13 and bounds[2] == 14); checks += 1
+assert(hex_color(72370) == "011ab2"); checks += 1
+assert(hex_color(16777216) == "000000"); checks += 1
+assert(hex_color(-1) == "ffffff"); checks += 1
+assert(number_color(72370) == color(1,26,178)); checks += 1
+assert(number_color(16777217) == color(0,0,1)); checks += 1
+assert(color_number(compile_formula("-0.9",false),0,0,0).value == 0); checks += 1
+assert(color_number(compile_formula("-1.9",false),0,0,0).value == 16777215); checks += 1
+assert(color_number(compile_formula("x**y",false),799,599,0).value == 10460127); checks += 1
+assert(color_number(compile_formula("9999999999999999999999999999999999999999",false),0,0,0).value == 16777215); checks += 1
+assert(color_number(compile_formula("(x+1)**y + x*x - y",false),798,599,0).value == 11096332); checks += 1
+assert(color_number(compile_formula("x^y",false),799,599,0).value == 328); checks += 1
+assert(color_number(compile_formula("x&y",false),799,599,0).value == 535); checks += 1
+assert(color_number(compile_formula("x|y",false),799,599,0).value == 863); checks += 1
+assert(color_number(compile_formula("(2**1000-1)&72370",false),0,0,0).value == 72370); checks += 1
+assert(color_number(compile_formula("9999999999999999999999999999999999999999^255",false),0,0,0).value == 16776960); checks += 1
+assert(color_number(compile_formula("-2^5",false),0,0,0).value == 16777211); checks += 1
+assert(not numeric(compile_formula("x&y",false),0.5,2,0).valid); checks += 1
+assert(modular_power(2,1000000) == 0); checks += 1
+for source in ["(16777216==0)*16777215","(16777216!=0)*72370","(1.5<2)*72370","(x<y<z)*72370","(2**1000-1)*(x==3)"]:(
+    int expected = 72370
+    if source == "(16777216==0)*16777215":(expected = 0)
+    elif source == "(2**1000-1)*(x==3)":(expected = 16777215)
+    Sample result = color_number(compile_formula(source,true),3,4,5)
+    assert(result.valid and result.value == expected,"RGB wrapping must follow comparison evaluation: "+source)
+    checks += 1
+)
+
+FormulaNode sphere = compile_formula("4-(x-2)**2-(y-2)**2-(z-2)**2",true)
+int occupied = 0
+for x in range(5):(
+    for y in range(5):(
+        for z in range(5):(
+            Sample value = numeric(sphere,x,y,z)
+            if value.valid and value.value > 0:(occupied += 1)
+        )
+    )
+)
+assert(occupied == 27,"Strict threshold must exclude the sphere boundary."); checks += 1
+
+camera view = create_camera()
+view.position = (0,0,0); view.rotation = (0,0,0)
+move_camera(view,1,0,0,2,1)
+assert(length(view.position-vec3(0,0,2)) < 0.000001); checks += 1
+view.position = (0,0,0); view.rotation = (0,90,0)
+move_camera(view,1,0,0,2,1)
+assert(length(view.position-vec3(2,0,0)) < 0.000001); checks += 1
+view.position = (0,0,0)
+move_camera(view,0,1,0,2,1)
+assert(length(view.position-vec3(0,0,-2)) < 0.000001); checks += 1
+view.position = (0,0,0)
+move_camera(view,0,0,1,2,1)
+assert(length(view.position-vec3(0,2,0)) < 0.000001); checks += 1
+view.position = (0,0,0); view.rotation = (40,25,0)
+move_camera(view,1,1,1,2,1)
+assert(abs(length(view.position)-2) < 0.000001,"Diagonal flight must preserve speed."); checks += 1
+view.position = (0,0,0); view.rotation = (0,0,0)
+move_camera(view,-1,0,0,2,0.5)
+assert(length(view.position-vec3(0,0,-1)) < 0.000001); checks += 1
+
+vec3 extents = (3.84,3.84,3.84)
+for viewport in [vec2(800,600),vec2(200,800),vec2(800,200)]:(
+    frame_view(view,extents,viewport)
+    mat4 transform = perspective(view.fov,viewport.x/viewport.y,view.near,view.far)*look_at(view.position,(0,0,0),(0,1,0))
+    for x in [-1,1]:(
+        for y in [-1,1]:(
+            for z in [-1,1]:(
+                vec4 point = transform*vec4(x*extents.x*0.5,y*extents.y*0.5,z*extents.z*0.5,1)
+                assert(abs(point.x) < point.w and abs(point.y) < point.w and point.z > 0 and point.z < point.w,"The reset camera must frame all volume corners.")
+            )
+        )
+    )
+    checks += 1
+)
+println(checks,"formula checks passed.")

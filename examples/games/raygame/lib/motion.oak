@@ -1,0 +1,213 @@
+\ Predictive convex sweeps. Candidate poses are read without moving a Body.
+from "world.oak" import Body;World
+from "geometry.oak" import UP;axes;support;safe_normal;closest_segments;segment_box;vabs
+float SKIN=0.0001
+float NEAR=0.0015
+list BASIS=[vec3(1,0,0),UP,vec3(0,0,1)]
+type Sweep:(float fraction=1.0;vec3 normal=(0,1,0))
+
+def rotation_at(quat original,vec3 angle,float fraction)->quat:(
+    if dot(angle,angle)<0.00000000000000000001:(return original)
+    quat delta=quat(angle.x,angle.y,angle.z,0)*original
+    return quat_normalize(quat(original.x+delta.x*(0.5*fraction),original.y+delta.y*(0.5*fraction),original.z+delta.z*(0.5*fraction),original.w+delta.w*(0.5*fraction)))
+)
+
+def segment_at(Body b,vec3 at,quat rotation)->tuple:(
+    if b.shape==0:(return (at,at))
+    vec3 offset=rotation*UP*b.size.y
+    return (at-offset,at+offset)
+)
+
+def round_box_gap(Body round,vec3 center,quat rotation,Body box,vec3 box_center,quat box_rotation)->tuple:(
+    tuple ends=segment_at(round,center,rotation);quat inverse=conjugate(box_rotation)
+    tuple nearest=segment_box(inverse*(ends[0]-box_center),inverse*(ends[1]-box_center),box.size)
+    vec3 delta=nearest[0]-nearest[1];float distance=length(delta)
+    if distance>0.00000001:(return (distance-round.size.x,box_rotation*(delta/distance)))
+    vec3 gaps=box.size-vabs(nearest[0]);vec3 normal=UP;float depth=gaps.y
+    if gaps.x<=gaps.y and gaps.x<=gaps.z:(normal=vec3(2*int(nearest[0].x>=0)-1,0,0);depth=gaps.x)
+    else:(if gaps.y<=gaps.z:(normal=vec3(0,2*int(nearest[0].y>=0)-1,0))
+    else:(normal=vec3(0,0,2*int(nearest[0].z>=0)-1);depth=gaps.z))
+    return (-depth-round.size.x,box_rotation*normal)
+)
+
+def gap_at(Body a,vec3 at,quat rotation,Body b)->tuple:(
+    if a.shape!=1 and b.shape!=1:(
+        tuple aa=segment_at(a,at,rotation);tuple bb=segment_at(b,b.position,b.rotation)
+        tuple closest=closest_segments(aa[0],aa[1],bb[0],bb[1]);vec3 delta=closest[0]-closest[1]
+        return (length(delta)-a.size.x-b.size.x,safe_normal(delta))
+    )
+    if a.shape!=1:(return round_box_gap(a,at,rotation,b,b.position,b.rotation))
+    if b.shape!=1:(tuple gap=round_box_gap(b,b.position,b.rotation,a,at,rotation);return (gap[0],-gap[1]))
+    list ax=[rotation*axis for axis in BASIS];list bx=axes(b);list tests=[*ax,*bx]
+    for x in ax:(for y in bx:(append(tests,cross(x,y))))
+    vec3 delta=at-b.position;float largest=-1000000.0;vec3 normal=UP
+    for axis in tests:(
+        if dot(axis,axis)<0.00000001:(continue)
+        axis=normalize(axis)
+        float ra=abs(dot(ax[0],axis))*a.size.x+abs(dot(ax[1],axis))*a.size.y+abs(dot(ax[2],axis))*a.size.z
+        float rb=abs(dot(bx[0],axis))*b.size.x+abs(dot(bx[1],axis))*b.size.y+abs(dot(bx[2],axis))*b.size.z
+        float gap=abs(dot(delta,axis))-ra-rb
+        if gap>largest+0.000000001:(largest=gap;normal=axis*(2*int(dot(delta,axis)>=0)-1))
+    )
+    return (largest,normal)
+)
+
+def roots(float a,float b,float c,float low,float high)->list:(
+    list result=[]
+    if abs(a)<0.00000000000001:(
+        if abs(b)>0.00000000000001:(float t=-c/b;if t>low and t<high:(append(result,t)))
+    )
+    else:(
+        float discriminant=b*b-4*a*c
+        if discriminant>=0.0:(
+            float root=sqrt(discriminant)
+            for t in [(-b-root)/(2*a),(-b+root)/(2*a)]:(if t>low and t<high:(append(result,t)))
+        )
+    )
+    return result
+)
+
+def ordered(list values)->list:(
+    for i in range(1,len(values)):(
+        float value=values[i];int j=i
+        while j>0 and values[j-1]>value:(values[j]=values[j-1];j-=1)
+        values[j]=value
+    )
+    return values
+)
+
+def polynomial(list c,float t)->float:(return ((c[3]*t+c[2])*t+c[1])*t+c[0])
+
+\ Quaternion integration gives a quadratic numerator divided by 1+k*t*t.
+\ Find support-plane crossings using sign changes and cubic extrema, so even
+\ a rotating box with clear endpoints cannot turn through a touched surface.
+def plane_limit(Body body,vec3 delta,vec3 angle,vec3 normal,float plane,float maximum,float minimum=0.0)->float:(
+    float speed=dot(delta,normal);float radius=0.0;list directions=[];list extents=[]
+    if body.shape==0:(radius=body.size.x)
+    if body.shape==2:(radius=body.size.x;directions=[UP];extents=[body.size.y])
+    if body.shape==1:(directions=BASIS;extents=[body.size.x,body.size.y,body.size.z])
+    quat first=rotation_at(body.rotation,angle,minimum)
+    float start=dot(body.position+delta*minimum,normal)-radius-plane
+    for i in range(len(directions)):(start-=extents[i]*abs(dot(first*directions[i],normal)))
+    \ Existing clearance may close to contact. Keeping the whole old skin as
+    \ a hard plane would lock rolling/jointed parts before they can settle.
+    float skin=min(0.0,start)
+    if dot(angle,angle)<0.00000000000000000001 or body.shape==0:(
+        if speed>=-0.000000000001:(return maximum)
+        return min(maximum,max(minimum,minimum+(start-skin)/(-speed)))
+    )
+    float k=dot(angle,angle)*0.25;quat middle=rotation_at(body.rotation,angle,0.5);quat end=rotation_at(body.rotation,angle,1.0)
+    list terms=[];list cuts=[minimum,maximum]
+    for i in range(len(directions)):(
+        float a=dot(body.rotation*directions[i],normal)
+        float m=dot(middle*directions[i],normal)*(1.0+k*0.25)
+        float e=dot(end*directions[i],normal)*(1.0+k)
+        float c=2.0*(e-2.0*m+a);float b=e-a-c
+        append(terms,(a,b,c,extents[i]))
+        for t in roots(c,b,a,minimum,maximum):(append(cuts,t))
+    )
+    ordered(cuts)
+    float center=dot(body.position,normal)-plane-radius-skin
+    for segment in range(len(cuts)-1):(
+        float low=cuts[segment];float high=cuts[segment+1];float mid=(low+high)*0.5
+        list c=[center,speed,center*k,speed*k]
+        for term in terms:(
+            float sign=2*int(term[0]+term[1]*mid+term[2]*mid*mid>=0.0)-1
+            for j in range(3):(c[j]-=term[3]*sign*term[j])
+        )
+        list extrema=[low,high]
+        for t in roots(3*c[3],2*c[2],c[1],low,high):(append(extrema,t))
+        ordered(extrema)
+        for i in range(1,len(extrema)):(
+            if polynomial(c,extrema[i])< -0.000000000001:(
+                float left=extrema[i-1];float right=extrema[i]
+                if polynomial(c,left)< -0.000000000001:(return left)
+                for bisect in range(28):(
+                    float t=(left+right)*0.5
+                    if polynomial(c,t)>=0.0:(left=t)
+                    else:(right=t)
+                )
+                return left
+            )
+        )
+    )
+    return maximum
+)
+
+def sweep(World world,Body body,vec3 delta,vec3 angle)->Sweep:(
+    Sweep result=Sweep()
+    float travel=length(delta)
+    if body.shape!=0:(travel+=body.bound*length(angle))
+    if travel<0.000000000001:(return result)
+    if min(body.position.y,body.position.y+delta.y)<=body.bound+SKIN:(
+        result.fraction=plane_limit(body,delta,angle,UP,0.0,1.0)
+    )
+    float distance2=dot(delta,delta)
+    for other in world.bodies:(
+        if other.id==body.id or not other.active:(continue)
+        if (min(body.id,other.id),max(body.id,other.id)) in world.linked:(continue)
+        float along=0.0
+        if distance2>0.000000000001:(along=clamp(dot(other.position-body.position,delta)/distance2,0.0,result.fraction))
+        vec3 separation=other.position-body.position-delta*along
+        if dot(separation,separation)>(body.bound+other.bound+NEAR)**2:(continue)
+        float t=0.0;bool finished=false
+        for iteration in range(32):(
+            tuple gap=gap_at(body,body.position+delta*t,rotation_at(body.rotation,angle,t),other)
+            if gap[0]<=NEAR:(
+                vec3 normal=gap[1]
+                float stop=plane_limit(body,delta,angle,normal,dot(support(other,normal),normal),result.fraction,t)
+                if stop<result.fraction:(result.fraction=stop;result.normal=normal)
+                finished=true;break
+            )
+            t+=max(0.000000000001,(gap[0]-SKIN)*0.8/travel)
+            if t>=result.fraction:(finished=true;break)
+        )
+        \ Never commit an unchecked tail if conservative advancement stalls.
+        if not finished and t<result.fraction:(result.fraction=t;result.normal=safe_normal(body.position+delta*t-other.position))
+    )
+    return result
+)
+
+def floor_gap(Body body,vec3 position,quat rotation)->float:(
+    if body.shape==0:(return position.y-body.size.x)
+    if body.shape==2:(return position.y-body.size.x-abs((rotation*UP).y)*body.size.y)
+    return position.y-abs((rotation*BASIS[0]).y)*body.size.x-abs((rotation*UP).y)*body.size.y-abs((rotation*BASIS[2]).y)*body.size.z
+)
+
+def commit_pose(World world,Body body,vec3 position,quat rotation):(
+    if world.audit_motion:(
+        assert(floor_gap(body,position,rotation)>=min(0.0,floor_gap(body,body.position,body.rotation))-0.00000002,"Predictive pass crossed the floor")
+        for other in world.bodies:(
+            if other.id==body.id or not other.active or (min(body.id,other.id),max(body.id,other.id)) in world.linked:(continue)
+            float before=gap_at(body,body.position,body.rotation,other)[0]
+            float after=gap_at(body,position,rotation,other)[0]
+            assert(after>=min(0.0,before)-0.00000002,"Predictive pass entered another body")
+        )
+        world.motion_commits+=1
+    )
+    body.position=position;body.rotation=rotation
+)
+
+def apply_motion(World world,Body body,vec3 delta,vec3 angle,bool correction=false)->tuple:(
+    if body.inverse_mass==0.0:(return (vec3(0,0,0),vec3(0,0,0)))
+    float squared=dot(angle,angle)
+    if dot(delta,delta)<0.000000000000000001 and squared<0.000000000000000001:(return (vec3(0,0,0),vec3(0,0,0)))
+    if squared>0.0324:(angle*=0.18/sqrt(squared))
+    vec3 before=body.position;quat original=body.rotation
+    Sweep first=sweep(world,body,delta,angle)
+    \ Commit only the already validated pose; no temporary penetration/undo.
+    commit_pose(world,body,body.position+delta*first.fraction,rotation_at(original,angle,first.fraction))
+    vec3 turned=angle*first.fraction
+    \ Small resting movements may keep their free tangent component. Fast
+    \ impacts stop at contact for the velocity solve, avoiding tangent leaps
+    \ around the collider during a large projectile displacement.
+    if first.fraction<1.0 and (correction or dot(delta,delta)<=(body.bound*2.0)**2):(
+        vec3 remaining=delta*(1.0-first.fraction)
+        remaining-=first.normal*min(0.0,dot(remaining,first.normal))
+        if dot(remaining,remaining)>0.000000000000000001:(
+            Sweep slide=sweep(world,body,remaining,vec3(0,0,0))
+            commit_pose(world,body,body.position+remaining*slide.fraction,body.rotation)
+        )
+    )
+    return (body.position-before,turned)
+)

@@ -1,0 +1,227 @@
+\# Collections, recoverable errors, lazy iteration, numbers and flexible calls. #\
+dict scores = {"Ada": 10, "Oak": 20}
+scores["Oak"] += 2
+scores.update({"Lin": 15})
+assert(scores.get("missing", 0) == 0)
+dict copied = {**scores, "Ada": 30}
+assert(copied["Ada"] == 30 and scores["Ada"] == 10)
+set residues = {n%3 for n in range(20)}
+assert(residues == {0,1,2} and 1 in residues)
+assert(({1,2}|{2,3}) == {1,2,3})
+frozenset key = frozenset([1,2])
+dict keyed = {key: "immutable", (1,2): "tuple"}
+assert(keyed[key] == "immutable")
+bytes immutable = bytes([0, 127, 255])
+assert(immutable[::-1] == bytes([255,127,0]))
+first, *middle, last = (1,2,3,4)
+assert(first == 1 and last == 4 and len(middle) == 2)
+dict squares_by_number = {n:n*n for n in range(5)}
+list pairs = [(x,y) for x in range(3) for y in range(3) if x<y]
+assert(len(pairs) == 3 and squares_by_number[4] == 16)
+
+def greeting(string name, string prefix="Hello", *, string ending="!") -> string:(
+    return "{0}, {1}{2}".format(prefix,name,ending)
+)
+assert(greeting("Oak") == "Hello, Oak!")
+assert(greeting(ending=".", name="Oak", prefix="Welcome") == "Welcome, Oak.")
+dict options = {"name":"Oak", "ending":"?"}
+assert(greeting(**options) == "Hello, Oak?")
+def collect(first=1, *int values, **int labels):(
+    return first+sum(values)+sum(labels.values())
+)
+assert(collect(2,3,4, extra=5) == 14)
+function twice = lambda value: value*2
+assert(twice(4) == 8)
+def doubled(function original):(
+    def wrapped(*values, **labels):(
+        return original(*values, **labels)*2
+    )
+    return wrapped
+)
+@doubled
+def add(a,b=1):(
+    return a+b
+)
+assert(add(3,b=4) == 14)
+
+bool recovered = false
+try:(
+    print(scores["missing"])
+)
+except KeyError as error:(
+    recovered = error.name == "KeyError"
+)
+finally:(
+    scores["cleanup"] = 1
+)
+assert(recovered and scores["cleanup"] == 1)
+CustomError = exception_type("CustomError", ValueError)
+try:(raise CustomError("demonstration"))
+except ValueError as error:(assert(error.message == "demonstration"))
+
+range huge = range(1000000000000)
+assert(huge[-1] == 999999999999 and len(huge) == 1000000000000)
+assert(list(range(6)[::-2]) == [5,3,1])
+int produced = 0
+bool cleaned = false
+def squares(limit):(
+    try:(
+        for n in range(limit):(
+            produced += 1
+            yield n*n
+        )
+    )
+    finally:(cleaned = true)
+)
+generator values = squares(1000000000000)
+assert(produced == 0)
+assert(next(values) == 0 and next(values) == 1 and produced == 2)
+values.close()
+assert(cleaned)
+generator lazy = (n*n for n in range(4))
+assert(sum(lazy) == 14)
+assert(list(map(lambda n:n*2, range(3))) == [0,2,4])
+assert(list(filter(lambda n:n%2==0, range(6))) == [0,2,4])
+for index, value in enumerate([10,20],5):(
+    assert(value == (index-4)*10)
+)
+assert(list(zip([1,2],[3,4])) == [(1,3),(2,4)])
+
+assert((0xff & 0b1010) == 10 and (3^5) == 6 and (2|4) == 6)
+assert(~0 == -1 and 1<<8 == 256 and -8>>2 == -2)
+assert(-7//3 == -3 and 1_000 == 1000 and 0o17 == 15)
+assert(1 < 2 < 3 and not (3 < 2 < 1))
+
+\# Additional native control flow and resource independent math checks. #\
+list log=[]
+def returned():(try:(yield 1;return)
+    finally:(yield 2))
+assert(list(returned())==[1,2])
+def failed():(try:(raise ValueError("bad"))
+    finally:(yield 8))
+g=failed();assert(next(g)==8)
+bool caught=false
+try:(next(g))
+except ValueError:(caught=true)
+assert(caught)
+def handled():(try:(raise KeyError("missing"))
+    except KeyError:(yield 1;raise))
+g=handled();assert(next(g)==1)
+caught=false
+try:(raise)
+except RuntimeError:(caught=true)
+assert(caught)
+caught=false
+try:(next(g))
+except KeyError:(caught=true)
+assert(caught)
+def looped():(for i in range(4):(
+    try:(if i==1:(continue)
+        if i==3:(break)
+        yield i)
+    finally:(yield -i)))
+assert(list(looped())==[0,0,-1,2,-2,-3])
+type Manager:(function __enter__;function __exit__)
+def enter():(append(log,"enter");return 7)
+def leave(type,error,trace):(
+    append(log,"exit")
+    return type is ValueError
+)
+with Manager(enter,leave) as value:(assert(value==7);raise ValueError("handled"))
+assert(log==["enter","exit"])
+def context_sequence():(with Manager(enter,leave) as value:(yield value))
+g=context_sequence();assert(next(g)==7);close(g)
+assert(log==["enter","exit","enter","exit"])
+def return_context():(with Manager(enter,leave) as value:(return value))
+assert(return_context()==7)
+list functions=[]
+for i in range(4):(append(functions,lambda n=0:i+n))
+assert([f(2) for f in functions]==[2,3,4,5])
+first,*middle,last=(1,2,3,4)
+assert(first==1 and middle==[2,3] and last==4)
+dict d={true:"same",(1,2):7,frozenset([1,2]):9}
+assert(d[1.0]=="same" and d[(1.0,2.0)]==7 and d[frozenset([2,1])]==9)
+del d[(1,2)]
+assert((1,2) not in d and len(d)==2)
+list items=[0,1,2,3,4];del items[1];del items[1:3]
+assert(items==[0,4])
+assert("length" in dir(items) and "format" in dir("Oak"))
+int errors=0
+for fn in [lambda:d[[]],lambda:next(iter([])),lambda:1/0,lambda:1<<-1]:(
+    try:(fn())
+    except Exception as error:(errors+=1;assert(error.line>0 and error.file!=""))
+)
+assert(errors==4)
+options Status:(idle;ready)
+extend options Status:(done)
+schema Named:(string name="Oak")
+type Document from Named:(Status status=<idle>;readonly int id=1)
+Document doc=Document();doc.status=<done>
+assert(doc.name=="Oak" and doc.id==1 and string(doc.status)=="<done>")
+mat4 transform=translate((10,0,0))*scale((2,2,2))
+assert(transform*vec4(1,2,3,1)==vec4(12,4,6,1))
+vec4 recovered_point=inverse(transform)*vec4(12,4,6,1)
+assert(abs(recovered_point.x-1)<0.000001 and abs(determinant(transform)-8)<0.000001)
+quat q=quat_from_axis_angle((0,1,0),90)
+vec3 rotated=q*vec3(1,0,0)
+assert(abs(rotated.x)<0.000001 and abs(rotated.z+1)<0.000001)
+assert(length(quat_normalize(q))>0.99999)
+println("Native advanced features passed.")
+
+function vector_constructor=vec2
+assert(vector_constructor(1,2)==vec2(1,2))
+assert(dir(ValueError)==[] and dir(3)==[])
+def replacement(fn):(return lambda:"replacement")
+@replacement
+def original(int required)->int:(return required)
+assert(original()=="replacement")
+
+int final_calls=0
+def return_value():(final_calls+=1;return 7)
+def generator_return():(try:(yield 1;return return_value())
+    finally:(final_calls+=1))
+assert(list(generator_return())==[1] and final_calls==2)
+def bad_slice(value):(return value[:])
+bool slice_caught=false
+try:(bad_slice(vec2(1,2)))
+except TypeError:(slice_caught=true)
+assert(slice_caught)
+
+list nested_cleanup=[]
+try:(
+    for i in range(4):(
+        try:(if i==0:(continue)
+            if i==1:(break))
+        finally:(append(nested_cleanup,"inner"))
+    )
+    append(nested_cleanup,"after-loop")
+)
+finally:(append(nested_cleanup,"outer"))
+assert(nested_cleanup==["inner","inner","after-loop","outer"])
+int return_catches=0
+def invalid_return(value)->int:(try:(return value)
+    except TypeError:(return_catches+=1;return 0)
+    finally:(return_catches+=1))
+bool invalid_caught=false
+try:(invalid_return("bad"))
+except TypeError:(invalid_caught=true)
+assert(invalid_caught and return_catches==1)
+def vector_return()->vec2:(vec2 v=(1,2)
+    try:(return v)
+    finally:(v.x=9))
+assert(vector_return()==vec2(9,2))
+assert(next(enumerate([7],9223372036854775807))==(9223372036854775807,7))
+
+list expansion_items=[1]
+def change_expansion():(append(expansion_items,2);return 3)
+assert([*expansion_items,change_expansion()]==[1,3])
+expansion_items=[1]
+def collect_expansion(*values):(return values)
+assert(collect_expansion(*expansion_items,change_expansion())==(1,3))
+int late_calls=0
+def later_value():(late_calls+=1;return 7)
+def keywords_only(**options):(return options)
+bool duplicate_caught=false
+try:(keywords_only(a=1,**{"a":2},b=later_value()))
+except TypeError:(duplicate_caught=true)
+assert(duplicate_caught and late_calls==0)

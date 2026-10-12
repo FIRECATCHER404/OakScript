@@ -1,0 +1,20 @@
+\# Camera math is separate from native input queries so it can be checked headlessly. #\
+def frame_view(camera view, vec3 extents, vec2 viewport) -> float:(
+    float radius = length(extents)*0.5+0.2
+    float aspect = max(0.001,viewport.x/viewport.y)
+    float tangent = tan(32.5*pi/180)*min(1,aspect)
+    float sine = tangent/sqrt(1+tangent*tangent)
+    float distance = radius/sine*1.08
+    view.fov = 65
+    view.near = 0.01
+    view.far = max(100,(distance+radius)*3)
+    view.position = (0,sin(16*pi/180)*distance,-cos(16*pi/180)*distance)
+    view.rotation = (16,0,0)
+    return max(0.5,max(extents.x,extents.y,extents.z)*0.7)
+)
+def move_camera(camera view, float forward, float strafe, float up, float speed, float dt):(
+    vec3 ahead = quat_from_euler((view.rotation.x,view.rotation.y,0))*vec3(0,0,1)
+    vec3 right = quat_from_euler((0,view.rotation.y,0))*vec3(1,0,0)
+    vec3 motion = ahead*forward+right*strafe+vec3(0,1,0)*up
+    if length(motion) > 0.000001:(view.position += normalize(motion)*speed*dt)
+)

@@ -1,5 +1,5 @@
-/# Arguments after the file name are passed unchanged to args. #/
-def main(list arguments) -> int:(
+\# Arguments after the file name are passed unchanged to args. #\
+def __main__(list arguments) -> int:(
     print("Script:", script_path)
     for value in arguments:(
         print(value)

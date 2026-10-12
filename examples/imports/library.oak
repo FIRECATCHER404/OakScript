@@ -1,4 +1,4 @@
-/# All bindings defined at the top level are available to import. #/
+\# All bindings defined at the top level are available to import. #\
 int first = 10
 string second = "Oak"
 vec3 third = (1, 2, 3)

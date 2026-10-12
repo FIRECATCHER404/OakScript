@@ -1,0 +1,142 @@
+from "lib/formula.oak" import FormulaNode;Sample;compile_formula;numeric
+from "lib/arguments.oak" import dimensions;progress_bar
+from "lib/cubes.oak" import Voxel;surface_batch;axes;VOXEL_SIZE
+from "lib/navigation.oak" import frame_view;move_camera
+
+def usage():(
+    println("Usage: oakscript voxels.oak \"formula\" \"(screen_width,screen_height)\" \"(width,length,height)\" [threshold]")
+    println("Example: oakscript voxels.oak \"100-(x-12)**2-(y-12)**2-(z-12)**2\" \"(800,600)\" \"(24,24,24)\" 0")
+    println("Operators: ** power; ^ XOR; & AND; | OR; == != < <= > >= comparisons (0/1). Bitwise operands must be integers.")
+    println("A cube exists only when value > threshold. Default threshold: 0.")
+    println("WASD: fly; Space/Shift: up/down; right mouse or arrows: look; wheel: speed; R: reset; Escape: quit.")
+)
+if argc == 1 and args[0] == "--help":(usage(); exit(0))
+if argc < 3 or argc > 4:(usage(); exit(2))
+list screen = dimensions(args[1],2)
+assert(screen[0]*screen[1] <= 16777216,"The window is limited to 16,777,216 pixels; choose smaller dimensions.")
+list bounds = dimensions(args[2],3)
+int width = bounds[0]
+int grid_length = bounds[1]
+int height = bounds[2]
+assert(width*grid_length*height <= 1000000,"The volume is limited to 1,000,000 samples; choose smaller bounds.")
+float threshold = 0
+if argc == 4:(threshold = float(args[3]))
+assert(abs(threshold) <= 1e300,"Threshold must be within +/-1e300.")
+FormulaNode formula = compile_formula(args[0],true)
+list occupied = []
+list occupancy = []
+list geometry = []
+int next_layer = 0
+int next_cube = 0
+int invalid_samples = 0
+bool sampled = false
+bool complete = false
+float started = time()
+float speed = 2
+vec3 extents = (width*VOXEL_SIZE,height*VOXEL_SIZE,grid_length*VOXEL_SIZE)
+float extent = max(extents.x,extents.y,extents.z,0.5)
+window_handle canvas = create_window("Oak Formula Voxels - "+args[0],screen[0],screen[1])
+camera view = create_camera()
+view.fov = 65
+view.near = 0.01
+view.far = max(100,extent*20)
+set_camera(view)
+mesh orientation_axes = axes(extents)
+light sun = create_light()
+sun.type = <directional>
+sun.direction = (0.5,-1,0.6)
+sun.intensity = 1.1
+add_light(sun)
+set_ambient((255,255,255),0.35)
+depth.mode = <less>
+cull.mode = <none>
+println("Sampling",width,"x",grid_length,"x",height,"coordinates with value >",threshold)
+println("Bounds order is (width X, length Z, height Y). Formula coordinates start at zero.")
+println("WASD: fly; Space/Shift: up/down; right mouse or arrows: look; wheel: speed; R: reset; Escape: quit.")
+
+def reset_view():(
+    speed = frame_view(view,extents,window_size())
+)
+reset_view()
+
+def sample_layers():(
+    int end_layer = min(height,next_layer+max(1,int(4096/(width*grid_length))))
+    for y in range(next_layer,end_layer):(
+        for z in range(grid_length):(
+            for x in range(width):(
+                Sample result = numeric(formula,x,y,z)
+                append(occupancy,result.valid and result.value > threshold)
+                if not result.valid:(invalid_samples += 1)
+                elif result.value > threshold:(
+                    assert(len(occupied) < 65536,"More than 65,536 visible cubes. Increase the threshold or reduce the bounds; no samples are silently truncated.")
+                    vec3 position = ((x-(width-1)*0.5)*VOXEL_SIZE,(y-(height-1)*0.5)*VOXEL_SIZE,(z-(grid_length-1)*0.5)*VOXEL_SIZE)
+                    \# Neutral gray cubes share faces with adjacent occupied cells. #\
+                    append(occupied,Voxel(position,color(210,210,210),x+width*(z+grid_length*y)))
+                )
+            )
+        )
+    )
+    next_layer = end_layer
+    if next_layer == height:(
+        sampled = true
+        println("Sampled:",width*grid_length*height,"coordinates;",len(occupied),"cubes exceed threshold.")
+        println("Sampling time:",round((time()-started)*1000),"ms.")
+        if invalid_samples > 0:(println("Undefined/out-of-range samples omitted:",invalid_samples))
+    )
+)
+def build_batch():(
+    \# Several cheap batches can fit in one frame. Keep an 8 ms CPU budget
+       instead of imposing one frame of waiting for every 512 occupied cells. #\
+    float batch_started = time()
+    bool first = true
+    while next_cube < len(occupied) and (first or time()-batch_started < 0.008):(
+        first = false
+        int end_cube = min(len(occupied),next_cube+512)
+        for batch in surface_batch(occupied,occupancy,width,grid_length,height,next_cube,end_cube):(
+            append(geometry,batch)
+        )
+        next_cube = end_cube
+    )
+    if next_cube == len(occupied):(
+        complete = true
+        println("Complete:",len(occupied),"cubes in",len(geometry),"cached meshes;",round((time()-started)*1000),"ms.")
+        if len(occupied) == 0:(println("No samples exceeded the threshold. Try a lower threshold."))
+        occupied = []
+        occupancy = []
+    )
+)
+def camera_input():(
+    if not window_focused():(
+        if mouse_locked():(lock_mouse(false))
+        return
+    )
+    bool looking = mouse_down("Right")
+    if looking != mouse_locked():(lock_mouse(looking))
+    float dt = min(delta_time,0.05)
+    vec2 motion = mouse_delta()
+    if looking:(view.rotation.y += motion.x*0.18; view.rotation.x += motion.y*0.18)
+    view.rotation.y += (int(key_down("Right"))-int(key_down("Left")))*65*dt
+    view.rotation.x += (int(key_down("Down"))-int(key_down("Up")))*65*dt
+    view.rotation.x = clamp(view.rotation.x,-89,89)
+    speed = clamp(speed*pow(1.2,mouse_wheel()),0.05,extent*8)
+    float forward = int(key_down("W"))-int(key_down("S"))
+    float strafe = int(key_down("D"))-int(key_down("A"))
+    float up = int(key_down("Space"))-int(key_down("LShift") or key_down("RShift"))
+    move_camera(view,forward,strafe,up,speed,dt)
+    if key_pressed("R"):(reset_view())
+)
+def draw():(
+    if key_pressed("Escape"):(close_window(); return)
+    camera_input()
+    if not sampled:(sample_layers())
+    elif not complete:(build_batch())
+    clear((14,20,30))
+    set_camera(view)
+    draw_mesh(orientation_axes)
+    for batch in geometry:(draw_mesh(batch))
+    if not complete:(
+        float progress = 0.5*float(next_layer)/height
+        if sampled:(progress = 0.5+0.5*float(next_cube)/max(1,len(occupied)))
+        progress_bar(progress,window_size())
+    )
+)

@@ -1,0 +1,547 @@
+\# A small arithmetic parser written entirely in Oak. No source evaluation,
+   shell invocation, or runtime changes. Integer color arithmetic is modulo
+   2**24, so x**y retains its actual low RGB bits even beyond float range. #\
+int RGB_MODULUS = 16777216
+float NUMBER_LIMIT = 1e300
+\# Obtain punctuation from padded strings for compatibility with Oak 0.4.0. #\
+string PLUS = " + "[1]
+string MINUS = " - "[1]
+string STAR = " * "[1]
+string SLASH = " / "[1]
+string PERCENT = " % "[1]
+string CARET = " ^ "[1]
+string AMPERSAND = " & "[1]
+string PIPE = " | "[1]
+string EQUAL = " = "[1]
+string BANG = " ! "[1]
+string LESS = " < "[1]
+string GREATER = " > "[1]
+string POWER = STAR+STAR
+string LEFT_PAREN = " ( "[1]
+string RIGHT_PAREN = " ) "[1]
+string COMMA = " , "[1]
+string PERIOD = " . "[1]
+
+type FormulaNode:(
+    string op
+    float number = 0
+    list children = []
+    bool modular = false
+    bool nonnegative = false
+    int residue = 0
+    list comparisons = []
+    bool predicate = false
+)
+type FormulaParser:(
+    string source
+    bool allow_z = false
+    int offset = 0
+    int depth = 0
+)
+type Sample:(
+    float value = 0
+    bool valid = true
+    bool integer = false
+)
+
+def digit(string c) -> bool:(return c >= "0" and c <= "9" and len(c) == 1)
+def letter(string c) -> bool:(
+    return len(c) == 1 and ((c >= "a" and c <= "z") or (c >= "A" and c <= "Z") or c == "_")
+)
+def peek(FormulaParser parser) -> string:(
+    while parser.offset < len(parser.source):(
+        string c = parser.source[parser.offset]
+        if c == " " or c == "\t" or c == "\n" or c == "\r":(parser.offset += 1)
+        else:(return c)
+    )
+    return ""
+)
+def error(FormulaParser parser, string message):(
+    assert(false,"Formula at character "+string(parser.offset+1)+": "+message)
+)
+def take(FormulaParser parser, string expected):(
+    if peek(parser) != expected:(error(parser,"expected '"+expected+"'."))
+    parser.offset += 1
+)
+def comparison(string op) -> bool:(
+    return op == "==" or op == "!=" or op == LESS or op == "<=" or op == GREATER or op == ">="
+)
+def branch(string op, list children) -> FormulaNode:(
+    FormulaNode node = FormulaNode(op,0,children)
+    if op == PLUS or op == MINUS or op == STAR:(
+        node.modular = children[0].modular and children[1].modular
+        node.nonnegative = op != MINUS and children[0].nonnegative and children[1].nonnegative
+    )
+    elif op == "neg":(node.modular = children[0].modular)
+    elif op == POWER:(
+        node.modular = children[0].modular and children[1].modular and children[1].nonnegative
+        node.nonnegative = children[0].nonnegative and children[1].nonnegative
+    )
+    elif op == AMPERSAND or op == CARET or op == PIPE:(
+        node.modular = children[0].modular and children[1].modular
+        node.nonnegative = children[0].nonnegative and children[1].nonnegative
+    )
+    elif comparison(op) or op == "compare_chain":(
+        node.modular = true; node.nonnegative = true; node.predicate = true
+    )
+    return node
+)
+def parse_number(FormulaParser parser) -> FormulaNode:(
+    string text = ""
+    int digits = 0
+    int residue = 0
+    bool decimal = false
+    \# Read contiguous characters: whitespace may separate tokens, not digits. #\
+    while parser.offset < len(parser.source) and digit(parser.source[parser.offset]):(
+        string c = parser.source[parser.offset]
+        text += c; residue = (residue*10+int(c)) % RGB_MODULUS
+        digits += 1; parser.offset += 1
+    )
+    if parser.offset < len(parser.source) and parser.source[parser.offset] == PERIOD:(
+        decimal = true; text += PERIOD; parser.offset += 1
+        while parser.offset < len(parser.source) and digit(parser.source[parser.offset]):(
+            text += parser.source[parser.offset]; parser.offset += 1; digits += 1
+        )
+    )
+    if digits == 0:(error(parser,"expected digits in a number."))
+    if parser.offset < len(parser.source) and (parser.source[parser.offset] == "e" or parser.source[parser.offset] == "E"):(
+        decimal = true; text += "e"; parser.offset += 1
+        if parser.offset < len(parser.source) and (parser.source[parser.offset] == PLUS or parser.source[parser.offset] == MINUS):(
+            text += parser.source[parser.offset]; parser.offset += 1
+        )
+        int exponent_digits = 0
+        while parser.offset < len(parser.source) and digit(parser.source[parser.offset]):(
+            text += parser.source[parser.offset]; parser.offset += 1; exponent_digits += 1
+        )
+        if exponent_digits == 0:(error(parser,"a scientific exponent needs digits."))
+    )
+    assert(len(text) <= 128,"Number literals are limited to 128 characters.")
+    float number = float(text)
+    assert(abs(number) <= NUMBER_LIMIT,"Number literals must be within +/-1e300.")
+    return FormulaNode("number",number,[],not decimal,true,residue)
+)
+def parse_primary(FormulaParser parser) -> FormulaNode:(
+    parser.depth += 1
+    if parser.depth > 48:(error(parser,"expression nesting is limited to 48 levels."))
+    string c = peek(parser)
+    FormulaNode node = FormulaNode("number")
+    if digit(c) or c == PERIOD:(node = parse_number(parser))
+    elif c == LEFT_PAREN:(
+        take(parser,LEFT_PAREN); node = parse_comparison(parser); take(parser,RIGHT_PAREN)
+    )
+    elif letter(c):(
+        string name = ""
+        while parser.offset < len(parser.source) and (letter(parser.source[parser.offset]) or digit(parser.source[parser.offset])):(
+            name += parser.source[parser.offset]; parser.offset += 1
+        )
+        if name == "x" or name == "y" or name == "z":(
+            if name == "z" and not parser.allow_z:(error(parser,"z is available only in the 3D program."))
+            node = FormulaNode(name,0,[],true,true)
+        )
+        elif name == "pi":(node = FormulaNode("number",pi,[],false,true))
+        elif name == "e":(node = FormulaNode("number",2.718281828459045,[],false,true))
+        else:(
+            int arity = 1
+            if name == "min" or name == "max" or name == "pow":(arity = 2)
+            elif name == "clamp":(arity = 3)
+            elif name != "sin" and name != "cos" and name != "tan" and name != "sqrt" and name != "abs" and name != "floor" and name != "ceil" and name != "round" and name != "log" and name != "ln" and name != "log10" and name != "exp":(
+                error(parser,"unknown variable or function '"+name+"'.")
+            )
+            take(parser,LEFT_PAREN)
+            list children = [parse_comparison(parser)]
+            for i in range(1,arity):(
+                take(parser,COMMA); append(children,parse_comparison(parser))
+            )
+            take(parser,RIGHT_PAREN)
+            if name == "pow":(name = POWER)
+            node = branch(name,children)
+        )
+    )
+    else:(error(parser,"expected a number, variable, function, or '(' ."))
+    parser.depth -= 1
+    return node
+)
+def parse_power(FormulaParser parser) -> FormulaNode:(
+    FormulaNode node = parse_primary(parser)
+    string c = peek(parser)
+    bool power = false
+    if c == STAR and parser.offset+1 < len(parser.source) and parser.source[parser.offset+1] == STAR:(
+        power = true; parser.offset += 1
+    )
+    if power:(parser.offset += 1; node = branch(POWER,[node,parse_unary(parser)]))
+    return node
+)
+def parse_unary(FormulaParser parser) -> FormulaNode:(
+    parser.depth += 1
+    if parser.depth > 48:(error(parser,"expression nesting is limited to 48 levels."))
+    string c = peek(parser)
+    if c == PLUS or c == MINUS:(
+        parser.offset += 1
+        FormulaNode node = parse_unary(parser)
+        parser.depth -= 1
+        if c == MINUS:(return branch("neg",[node]))
+        return node
+    )
+    FormulaNode node = parse_power(parser)
+    parser.depth -= 1
+    return node
+)
+def parse_product(FormulaParser parser) -> FormulaNode:(
+    FormulaNode node = parse_unary(parser)
+    while true:(
+        string c = peek(parser)
+        if c != STAR and c != SLASH and c != PERCENT:(break)
+        parser.offset += 1
+        node = branch(c,[node,parse_unary(parser)])
+    )
+    return node
+)
+def parse_sum(FormulaParser parser) -> FormulaNode:(
+    FormulaNode node = parse_product(parser)
+    while true:(
+        string c = peek(parser)
+        if c != PLUS and c != MINUS:(break)
+        parser.offset += 1
+        node = branch(c,[node,parse_product(parser)])
+    )
+    return node
+)
+def parse_and(FormulaParser parser) -> FormulaNode:(
+    FormulaNode node = parse_sum(parser)
+    while peek(parser) == AMPERSAND:(
+        parser.offset += 1; node = branch(AMPERSAND,[node,parse_sum(parser)])
+    )
+    return node
+)
+def parse_xor(FormulaParser parser) -> FormulaNode:(
+    FormulaNode node = parse_and(parser)
+    while peek(parser) == CARET:(
+        parser.offset += 1; node = branch(CARET,[node,parse_and(parser)])
+    )
+    return node
+)
+def parse_or(FormulaParser parser) -> FormulaNode:(
+    FormulaNode node = parse_xor(parser)
+    while peek(parser) == PIPE:(
+        parser.offset += 1; node = branch(PIPE,[node,parse_xor(parser)])
+    )
+    return node
+)
+def parse_comparison(FormulaParser parser) -> FormulaNode:(
+    FormulaNode first = parse_or(parser)
+    list children = [first]
+    list operators = []
+    while true:(
+        string op = peek(parser)
+        if op != EQUAL and op != BANG and op != LESS and op != GREATER:(break)
+        parser.offset += 1
+        if parser.offset < len(parser.source) and parser.source[parser.offset] == EQUAL:(
+            op += EQUAL; parser.offset += 1
+        )
+        elif op == EQUAL or op == BANG:(
+            error(parser,"comparison operators must be == or !=; their characters must be adjacent.")
+        )
+        append(operators,op); append(children,parse_or(parser))
+    )
+    if len(operators) == 0:(return first)
+    if len(operators) == 1:(return branch(operators[0],children))
+    FormulaNode node = branch("compare_chain",children)
+    node.comparisons = operators
+    return node
+)
+def known_float(FormulaNode node) -> bool:(
+    string op = node.op
+    if node.predicate:(return false)
+    if op == "number":(return not node.modular)
+    if op == "x" or op == "y" or op == "z" or op == AMPERSAND or op == CARET or op == PIPE:(return false)
+    if op == "floor" or op == "ceil" or op == "round":(return false)
+    if op == "neg" or op == "abs":(return known_float(node.children[0]))
+    if op == SLASH:(return true)
+    if op == PLUS or op == MINUS or op == STAR or op == PERCENT or op == POWER:(
+        return known_float(node.children[0]) or known_float(node.children[1])
+    )
+    if op == "min" or op == "max":(
+        return known_float(node.children[0]) and known_float(node.children[1])
+    )
+    if op == "clamp":(
+        return known_float(node.children[0]) or known_float(node.children[1]) or known_float(node.children[2])
+    )
+    return true
+)
+def validate_bitwise(FormulaNode node) -> bool:(
+    bool found = node.op == AMPERSAND or node.op == CARET or node.op == PIPE
+    if found:(
+        assert(not known_float(node.children[0]) and not known_float(node.children[1]),"Bitwise ^, & and | require integer operands. Use floor/ceil/round to convert floating-point values.")
+    )
+    for child in node.children:(
+        if validate_bitwise(child):(found = true)
+    )
+    return found
+)
+def tree_depth(FormulaNode node) -> int:(
+    int depth = 1
+    for child in node.children:(depth = max(depth,1+tree_depth(child)))
+    return depth
+)
+def compile_formula(string source, bool allow_z) -> FormulaNode:(
+    assert(len(source) > 0 and len(source) <= 512,"Formula must contain 1..512 characters.")
+    FormulaParser parser = FormulaParser(source,allow_z)
+    FormulaNode node = parse_comparison(parser)
+    if peek(parser) != "":(error(parser,"unexpected '"+peek(parser)+"'. Use explicit * for multiplication."))
+    assert(tree_depth(node) <= 48,"Formula tree depth is limited to 48 levels.")
+    if validate_bitwise(node):(prepare_bitwise())
+    return node
+)
+
+list and_bytes = []
+def prepare_bitwise():(
+    if len(and_bytes) == 65536:(return)
+    \# Each entry reuses a smaller pair; build one byte table once, not per pixel. #\
+    for a in range(256):(
+        for b in range(256):(
+            int value = 0
+            if a != 0 or b != 0:(value = and_bytes[int(a/2)*256+int(b/2)]*2+(a%2)*(b%2))
+            append(and_bytes,value)
+        )
+    )
+)
+def rgb_and(int a, int b) -> int:(
+    int value = and_bytes[(a%256)*256+b%256]
+    a = int(a/256); b = int(b/256)
+    if a != 0 and b != 0:(
+        value += and_bytes[(a%256)*256+b%256]*256
+        a = int(a/256); b = int(b/256)
+        if a != 0 and b != 0:(value += and_bytes[a*256+b]*65536)
+    )
+    return value
+)
+def rgb_bitwise(int a, int b, int kind) -> int:(
+    int both = rgb_and(a,b)
+    if kind == 1:(return both)
+    if kind == 2:(return a+b-2*both)
+    return a+b-both
+)
+def signed_bitwise(int a, int b, string op) -> int:(
+    \# Seven bytes safely cover the numeric evaluator's exact signed integer range.
+       Negative operands are sign-extended; remove low bytes before / to avoid
+       rounding their unsigned representations through floating-point division. #\
+    int left = a
+    int right = b
+    if left < 0:(left += 72057594037927936)
+    if right < 0:(right += 72057594037927936)
+    int both = 0
+    int factor = 1
+    for byte in range(7):(
+        int low_left = left%256
+        int low_right = right%256
+        both += and_bytes[low_left*256+low_right]*factor
+        left = int((left-low_left)/256)
+        right = int((right-low_right)/256)
+        factor *= 256
+    )
+    if both >= 36028797018963968:(both -= 72057594037927936)
+    if op == AMPERSAND:(return both)
+    if op == CARET:(return a+b-2*both)
+    return a+b-both
+)
+def integer_range(float value) -> bool:(
+    return value >= -9007199254740992 and value <= 9007199254740991
+)
+def arithmetic(float value, bool integer) -> Sample:(
+    return Sample(value,abs(value) <= NUMBER_LIMIT,integer and integer_range(value))
+)
+
+def natural_log(float value) -> float:(
+    \# Range reduction and the convergent atanh series; no external math code. #\
+    int shift = 0
+    while value > 1.5:(value *= 0.5; shift += 1)
+    while value < 0.75:(value *= 2; shift -= 1)
+    float t = (value-1)/(value+1)
+    float power = t
+    float sum = 0
+    for denominator in range(1,26,2):(
+        sum += power/denominator; power *= t*t
+    )
+    return 2*sum+shift*0.6931471805599453
+)
+def checked_number(float value) -> Sample:(
+    return Sample(value,abs(value) <= NUMBER_LIMIT)
+)
+def checked_power(float base, float exponent) -> Sample:(
+    if exponent == 0:(return Sample(1))
+    if exponent == 1:(return Sample(base))
+    if exponent == 2:(
+        if abs(base) > 1e150:(return Sample(0,false))
+        return Sample(base*base)
+    )
+    if base == 0:(return Sample(0,exponent > 0))
+    if base < 0 and exponent != floor(exponent):(return Sample(0,false))
+    float size = exponent*natural_log(abs(base))
+    if size > 690.7755278982137:(return Sample(0,false))
+    if size < -744:(return Sample(0))
+    return checked_number(pow(base,exponent))
+)
+def compare_values(string op, float a, float b) -> bool:(
+    if op == "==":(return a == b)
+    if op == "!=":(return a != b)
+    if op == LESS:(return a < b)
+    if op == "<=":(return a <= b)
+    if op == GREATER:(return a > b)
+    return a >= b
+)
+def numeric(FormulaNode node, float x, float y, float z) -> Sample:(
+    string op = node.op
+    if op == "number":(return Sample(node.number,true,node.modular and integer_range(node.number)))
+    if op == "x":(return arithmetic(x,x == floor(x)))
+    if op == "y":(return arithmetic(y,y == floor(y)))
+    if op == "z":(return arithmetic(z,z == floor(z)))
+    Sample first = numeric(node.children[0],x,y,z)
+    if not first.valid:(return first)
+    float a = first.value
+    if op == "compare_chain":(
+        \# Reuse each middle operand and stop at the first false comparison. #\
+        for i in range(1,len(node.children)):(
+            Sample next = numeric(node.children[i],x,y,z)
+            if not next.valid:(return next)
+            if not compare_values(node.comparisons[i-1],a,next.value):(return Sample(0,true,true))
+            a = next.value
+        )
+        return Sample(1,true,true)
+    )
+    if op == "neg":(return arithmetic(-a,first.integer))
+    if op == "sin":(return Sample(sin(a)))
+    if op == "cos":(return Sample(cos(a)))
+    if op == "tan":(
+        if abs(cos(a)) < 1e-15:(return Sample(0,false))
+        return checked_number(tan(a))
+    )
+    if op == "sqrt":(
+        if a < 0:(return Sample(0,false))
+        return Sample(sqrt(a))
+    )
+    if op == "abs":(return arithmetic(abs(a),first.integer))
+    if op == "floor":(return arithmetic(floor(a),true))
+    if op == "ceil":(return arithmetic(ceil(a),true))
+    if op == "round":(return arithmetic(round(a),true))
+    if op == "log" or op == "ln" or op == "log10":(
+        if a <= 0:(return Sample(0,false))
+        float result = natural_log(a)
+        if op == "log10":(result /= 2.302585092994046)
+        return Sample(result)
+    )
+    if op == "exp":(return checked_power(2.718281828459045,a))
+    Sample second = numeric(node.children[1],x,y,z)
+    if not second.valid:(return second)
+    float b = second.value
+    if node.predicate:(
+        int result = 0
+        if compare_values(op,a,b):(result = 1)
+        return Sample(float(result),true,true)
+    )
+    if op == PLUS:(return arithmetic(a+b,first.integer and second.integer))
+    if op == MINUS:(return arithmetic(a-b,first.integer and second.integer))
+    if op == STAR:(
+        if abs(b) > 1 and abs(a) > NUMBER_LIMIT/abs(b):(return Sample(0,false))
+        return arithmetic(a*b,first.integer and second.integer)
+    )
+    if op == SLASH or op == PERCENT:(
+        if b == 0:(return Sample(0,false))
+        if op == PERCENT:(return arithmetic(a%b,first.integer and second.integer))
+        if abs(b) < 1 and abs(a)/NUMBER_LIMIT > abs(b):(return Sample(0,false))
+        return checked_number(a/b)
+    )
+    if op == POWER:(
+        Sample result = checked_power(a,b)
+        result.integer = first.integer and second.integer and b >= 0 and integer_range(result.value)
+        return result
+    )
+    if op == AMPERSAND or op == CARET or op == PIPE:(
+        if not first.integer or not second.integer:(return Sample(0,false))
+        return Sample(float(signed_bitwise(int(a),int(b),op)),true,true)
+    )
+    if op == "min":(
+        if a <= b:(return first)
+        return second
+    )
+    if op == "max":(
+        if a >= b:(return first)
+        return second
+    )
+    Sample third = numeric(node.children[2],x,y,z)
+    if not third.valid or b > third.value:(return Sample(0,false))
+    return arithmetic(clamp(a,b,third.value),first.integer and second.integer and third.integer)
+)
+def modular_power(int base, int exponent) -> int:(
+    base = ((base%RGB_MODULUS)+RGB_MODULUS)%RGB_MODULUS
+    if exponent >= 24 and base%2 == 0:(return 0)
+    int value = 1
+    while exponent > 0:(
+        if exponent%2 == 1:(value = value*base%RGB_MODULUS)
+        exponent = int(exponent/2)
+        if exponent > 0:(base = base*base%RGB_MODULUS)
+    )
+    return value
+)
+def residue(FormulaNode node, int x, int y, int z) -> Sample:(
+    string op = node.op
+    \# Compare full numeric operands, never their wrapped 24-bit RGB residues. #\
+    if node.predicate:(return numeric(node,x,y,z))
+    if op == "number":(return Sample(float(node.residue)))
+    if op == "x":(return Sample(float(((x%RGB_MODULUS)+RGB_MODULUS)%RGB_MODULUS)))
+    if op == "y":(return Sample(float(((y%RGB_MODULUS)+RGB_MODULUS)%RGB_MODULUS)))
+    if op == "z":(return Sample(float(((z%RGB_MODULUS)+RGB_MODULUS)%RGB_MODULUS)))
+    Sample a = residue(node.children[0],x,y,z)
+    if not a.valid:(return a)
+    if op == "neg":(return Sample((-a.value+RGB_MODULUS)%RGB_MODULUS))
+    if op == POWER:(
+        Sample exponent = numeric(node.children[1],x,y,z)
+        if not exponent.valid or exponent.value < 0 or exponent.value > 9007199254740991 or exponent.value != floor(exponent.value):(
+            return Sample(0,false)
+        )
+        return Sample(float(modular_power(int(a.value),int(exponent.value))))
+    )
+    Sample b = residue(node.children[1],x,y,z)
+    if not b.valid:(return b)
+    if op == PLUS:(return Sample((a.value+b.value)%RGB_MODULUS))
+    if op == MINUS:(return Sample((a.value-b.value+RGB_MODULUS)%RGB_MODULUS))
+    if op == AMPERSAND or op == CARET or op == PIPE:(
+        int kind = 1
+        if op == CARET:(kind = 2)
+        elif op == PIPE:(kind = 3)
+        return Sample(float(rgb_bitwise(int(a.value),int(b.value),kind)))
+    )
+    return Sample(a.value*b.value%RGB_MODULUS)
+)
+def color_number(FormulaNode node, int x, int y, int z) -> Sample:(
+    if node.modular:(return residue(node,x,y,z))
+    Sample sample = numeric(node,x,y,z)
+    if not sample.valid:(return sample)
+    float value = floor(sample.value)
+    if sample.value < 0:(value = ceil(sample.value))
+    return Sample(((value%RGB_MODULUS)+RGB_MODULUS)%RGB_MODULUS)
+)
+def number_color(int value) -> color:(
+    value = ((value%RGB_MODULUS)+RGB_MODULUS)%RGB_MODULUS
+    return color(int(value/65536),int(value/256)%256,value%256)
+)
+def hex_color(int value) -> string:(
+    value = ((value%RGB_MODULUS)+RGB_MODULUS)%RGB_MODULUS
+    string digits = "0123456789abcdef"
+    string text = ""
+    for i in range(6):(
+        text = digits[value%16]+text; value = int(value/16)
+    )
+    return text
+)
+def xy_power(FormulaNode node) -> bool:(
+    return node.op == POWER and node.children[0].op == "x" and node.children[1].op == "y"
+)
+def xy_bitwise(FormulaNode node) -> int:(
+    if node.op != AMPERSAND and node.op != CARET and node.op != PIPE:(return 0)
+    bool xy = node.children[0].op == "x" and node.children[1].op == "y"
+    bool yx = node.children[0].op == "y" and node.children[1].op == "x"
+    if not xy and not yx:(return 0)
+    if node.op == AMPERSAND:(return 1)
+    if node.op == CARET:(return 2)
+    return 3
+)

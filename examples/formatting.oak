@@ -1,0 +1,32 @@
+\# Receiving *args, both string formatting forms, and numeric booleans. #\
+def total(int first, *int rest) -> int:(
+    int value=first
+    for item in rest:(value+=item)
+    return value
+)
+def collect(*args):(return args)
+def message(string template, *args) -> string:(return template.format(*args))
+
+print("abcd{0}fg{1}".format("e","h"))
+print("123%s56%s"%(4,7))
+print("123%s"%4)
+print(message("{}: total={}","Oak",total(1,*[2,3],4)))
+print("amount={:.2f}; hex={:#06x}".format(3.125,255))
+print("value=%+05d, percentage=%.1f%%"%(7,25.0))
+assert(collect()==() and collect(1,"Oak",true)==(1,"Oak",true))
+assert(total(true,false,2)==3)
+
+int x=2
+int y=3
+int z=1
+print((x+y)*(z==1))
+z=0
+print((x+y)*(z==1))
+int numeric=true
+float decimal=false
+assert(numeric==1 and decimal==0.0)
+
+def __main__(*args) -> int:(
+    print("CLI args:",args)
+    return 0
+)

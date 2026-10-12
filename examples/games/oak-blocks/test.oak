@@ -1,0 +1,212 @@
+\# Headless checks use the same Oak libraries as the playable game. #\
+from "lib/world.oak" import World;empty;generate;raw_set;get;change;SIZE;HEIGHT;surface_height
+from "lib/input.oak" import Controls
+from "lib/physics.oak" import Player;step;occupied;eye_position;direction
+from "lib/raycast.oak" import Hit;cast;place;break_block
+from "lib/game.oak" import Game;update;safe_respawn
+from "lib/meshing.oak" import ChunkMesh;rebuild;refresh
+from "lib/textures.oak" import surface_index;surfaces;block_textures;icon
+
+int passed = 0
+float dt = 1.0/120.0
+def check(bool result, string text):(
+    assert(result,text)
+    passed += 1
+    print("PASS "+text)
+)
+
+def flat(World world):(
+    empty(world)
+    for z in range(SIZE):(
+        for x in range(SIZE):(raw_set(world,x,0,z,3))
+    )
+)
+
+def simulate(World world, Player player, Controls controls, int frames):(
+    for i in range(frames):(step(world,player,controls,dt))
+)
+
+World world = World()
+flat(world)
+Player player = Player()
+player.x = 10.5; player.y = 4.0; player.z = 10.5; player.yaw = 0.0
+Controls controls = Controls()
+simulate(world,player,controls,150)
+check(player.grounded and abs(player.y-1.0)<0.001,"gravity lands exactly on solid blocks")
+controls.forward = 1.0
+simulate(world,player,controls,120)
+check(abs(player.z-15.0)<0.01 and abs(player.x-10.5)<0.001,"W follows camera +Z at 4.5 blocks per second")
+controls.forward = -1.0
+simulate(world,player,controls,120)
+check(abs(player.z-10.5)<0.01,"S reverses movement")
+controls.forward = 0.0; controls.strafe = 1.0
+simulate(world,player,controls,120)
+check(abs(player.x-15.0)<0.01,"D strafes right")
+controls.strafe = -1.0
+simulate(world,player,controls,120)
+check(abs(player.x-10.5)<0.01,"A strafes left")
+controls.strafe = 1.0; controls.forward = 1.0
+float before_x = player.x; float before_z = player.z
+simulate(world,player,controls,120)
+check(abs(sqrt(pow(player.x-before_x,2)+pow(player.z-before_z,2))-4.5)<0.01,"diagonals are normalized")
+player.yaw = 90.0; controls.strafe = 0.0
+before_x = player.x
+simulate(world,player,controls,120)
+check(abs(player.x-before_x-4.5)<0.01,"movement follows rotated camera yaw")
+
+controls = Controls()
+player.x = 10.5; player.z = 10.5; player.y = 1.0; player.vy = 0.0; player.grounded = true
+player.jump_buffer = 0.14
+simulate(world,player,controls,40)
+check(player.y > 2.35 and not player.grounded,"Space jump clears a one-block step")
+float jump_y = player.y
+player.jump_buffer = 0.14
+simulate(world,player,controls,18)
+check(player.y < jump_y,"jump cannot be repeated in midair")
+simulate(world,player,controls,120)
+check(player.grounded and abs(player.y-1)<0.001,"jump lands without sinking or bouncing")
+
+for y in range(1,5):(
+    for z in range(8,13):(raw_set(world,13,y,z,3))
+)
+player.x = 11.5; player.yaw = 90.0; controls.forward = 1.0
+simulate(world,player,controls,150)
+check(player.x <= 12.701 and player.x > 12.69,"horizontal collision stops at a wall")
+controls.forward = 0.0
+player.x = 10.5; player.y = 1.0; player.grounded = true; player.jump_buffer = 0.14
+raw_set(world,10,3,10,3)
+simulate(world,player,controls,30)
+check(player.y+player.height <= 3.001,"jump collides with ceilings")
+simulate(world,player,controls,60)
+controls.crouch = true
+simulate(world,player,controls,30)
+check(player.crouched and player.height == 1.25 and player.eye < 1.1,"Shift lowers collider and camera")
+player.y = 1.55
+controls.crouch = false
+step(world,player,controls,0.0)
+check(player.crouched and player.height == 1.25,"standing up waits for sufficient headroom")
+raw_set(world,10,3,10,0)
+simulate(world,player,controls,30)
+check(not player.crouched and player.height == 1.8 and player.eye > 1.5,"crouch releases smoothly after clearing the ceiling")
+
+World ledge = World()
+empty(ledge)
+raw_set(ledge,10,0,10,3)
+player.x = 10.5; player.y = 1.0; player.z = 10.5; player.yaw = 0.0; player.grounded = true
+controls.forward = 1.0; controls.crouch = true
+simulate(ledge,player,controls,240)
+check(player.grounded and player.z < 11.30 and player.y > 0.999,"crouching prevents walking off a ledge")
+
+player = Player()
+player.x = 10.5; player.z = 10.5; player.y = 8.0; player.flying = true
+controls = Controls()
+controls.jump = true
+simulate(world,player,controls,120)
+check(abs(player.y-16.0)<0.01,"Space ascends in flight")
+controls.jump = false; controls.crouch = true
+simulate(world,player,controls,120)
+check(abs(player.y-8.0)<0.01,"Shift descends in flight")
+controls.crouch = false
+simulate(world,player,controls,120)
+check(abs(player.y-8.0)<0.01,"flight hovers with no gravity")
+player.y = 1.0; player.x = 11.5; player.yaw = 90.0; controls.forward = 1.0
+simulate(world,player,controls,120)
+check(player.x < 12.701,"flight retains block collisions")
+player.flying = false; player.y = 8.0; controls.forward = 0.0
+simulate(world,player,controls,150)
+check(player.grounded,"turning off flight restores gravity")
+player.x = SIZE-0.31; player.yaw = 90.0; controls.forward = 1.0
+simulate(world,player,controls,60)
+check(player.x <= SIZE-0.30,"the finite world boundary contains the player")
+
+World ray_world = World()
+empty(ray_world)
+raw_set(ray_world,5,2,8,3); raw_set(ray_world,5,2,10,4)
+Hit hit = cast(ray_world,vec3(5.5,2.5,5.5),vec3(0,0,1),6.0)
+check(hit.found and hit.z == 8 and hit.nz == -1 and abs(hit.distance-2.5)<0.001,"ray chooses nearest voxel and outward placement face")
+check(not cast(ray_world,vec3(5.5,2.5,5.5),vec3(0,0,1),2.0).found,"block picking respects the reach limit")
+hit = cast(ray_world,vec3(5.5,2.5,12.0),vec3(0,0,-1),6.0)
+check(hit.found and hit.z == 10 and hit.nz == 1,"negative axis and exact-boundary rays work")
+raw_set(ray_world,5,0,5,3)
+hit = cast(ray_world,vec3(5.5,4,5.5),vec3(0,-1,0),6.0)
+check(hit.found and hit.y == 0 and hit.ny == 1,"vertical picking finds the top face")
+check(not break_block(ray_world,hit),"the bottom foundation cannot be broken")
+hit = cast(ray_world,vec3(5.5,2.5,5.5),vec3(0,0,1),6.0)
+player = Player()
+player.x = 4.5; player.y = 2.0; player.z = 5.5
+check(place(ray_world,player,hit,7) and get(ray_world,5,2,7)==7,"right-click places the selected block adjacent to the target")
+check(not place(ray_world,player,hit,7),"placement cannot overwrite an occupied voxel")
+Hit placed = cast(ray_world,vec3(5.5,2.5,5.5),vec3(0,0,1),6.0)
+check(break_block(ray_world,placed) and get(ray_world,5,2,7)==0,"left-click breaks the picked block")
+player.x = 5.5; player.y = 2.0; player.z = 7.5
+check(not place(ray_world,player,hit,7),"placement cannot trap the player inside a block")
+check(not place(ray_world,player,Hit(),7) and not place(ray_world,player,hit,99),"invalid selections and absent targets cannot place blocks")
+
+Game game = Game()
+flat(game.world)
+game.player.x = 10.5; game.player.z = 10.5; game.player.y = 1.0
+controls = Controls()
+controls.start = true
+update(game,controls,dt)
+check(game.active and game.started,"Enter starts play")
+controls.start = false; controls.fly_pressed = true
+update(game,controls,dt)
+check(game.player.flying,"F toggles flight through the actual game update")
+controls.fly_pressed = false; controls.selection = 7
+update(game,controls,dt)
+check(game.selected == 7,"number keys select a block type")
+controls.selection = 0; controls.scroll = -2
+update(game,controls,dt)
+check(game.selected == 1,"mouse wheel wraps the hotbar")
+controls.scroll = 0; controls.pause = true
+update(game,controls,dt)
+float paused_y = game.player.y
+controls.pause = false; controls.jump = true
+update(game,controls,0.1)
+check(not game.active and game.player.y == paused_y,"Escape pauses the simulation")
+controls.start = true
+update(game,controls,dt)
+controls.start = false; controls.focused = false
+update(game,controls,dt)
+check(not game.active,"losing focus pauses instead of leaving movement stuck")
+controls.focused = true; controls.start = true
+update(game,controls,dt)
+controls.start = false; controls.jump = false; controls.respawn = true
+update(game,controls,dt)
+check(not game.player.flying and abs(game.player.x-16.5)<0.01,"R returns to the clearing and leaves flight")
+controls.respawn = false
+raw_set(game.world,16,6,7,3)
+safe_respawn(game)
+check(game.player.y > 7.0 and not occupied(game.world,game.player.x,game.player.y,game.player.z,1.8),"respawn moves above a build occupying the spawn")
+
+World mesh_world = World()
+empty(mesh_world)
+raw_set(mesh_world,2,2,2,3)
+ChunkMesh chunk = ChunkMesh(0,0)
+rebuild(mesh_world,chunk)
+check(chunk.faces == 6 and len(chunk.geometry)==1,"one block generates six procedural faces")
+change(mesh_world,3,2,2,3)
+refresh(mesh_world,[chunk])
+check(chunk.faces == 10 and chunk.rebuilds == 2,"neighbor interiors are culled and edits rebuild dirty meshes")
+refresh(mesh_world,[chunk])
+check(chunk.rebuilds == 2,"unchanged chunks are not rebuilt each frame")
+for i in range(16):(mesh_world.dirty[i] = false)
+change(mesh_world,7,2,7,4)
+check(mesh_world.dirty[0] and mesh_world.dirty[1] and mesh_world.dirty[4] and mesh_world.dirty[5],"chunk-corner edits also invalidate diagonal AO neighbors")
+change(mesh_world,2,2,2,0); change(mesh_world,3,2,2,0); change(mesh_world,7,2,7,0)
+rebuild(mesh_world,chunk)
+check(chunk.faces == 0 and len(chunk.geometry)==0,"an emptied chunk draws no stale geometry")
+check(not change(mesh_world,-1,2,2,3) and not change(mesh_world,0,HEIGHT,0,3),"out-of-world edits fail explicitly")
+
+World generated = World()
+generate(generated)
+check(get(generated,16,5,7)==6 and not occupied(generated,16.5,6.001,7.5,1.8),"generated spawn is clear and rests on the path")
+check(get(generated,5,surface_height(5,8)+1,8)==4,"terrain generation includes procedural oak trees")
+check(len(block_textures)==10 and block_textures[3].width==32 and block_textures[3].mipmap,"dedicated 32px PNGs load with mipmapping")
+check(surface_index(1,3)==0 and surface_index(1,0)==1 and surface_index(1,2)==2,"grass uses distinct top side and earth-bottom textures")
+check(surface_index(4,0)==4 and surface_index(4,3)==5 and surface_index(4,2)==5,"oak uses bark sides and end-grain caps")
+raw_set(mesh_world,2,2,2,1)
+rebuild(mesh_world,chunk)
+check(chunk.faces==6 and len(chunk.geometry)==3,"grass faces are grouped into their three texture materials")
+check(icon(1)==block_textures[0] and icon(4)==block_textures[5] and surfaces[3].texture==block_textures[3],"hotbar and mesh materials share the dedicated image resources")
+print(string(passed)+" Oak Blocks checks passed")

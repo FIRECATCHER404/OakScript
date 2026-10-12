@@ -1,0 +1,58 @@
+\# Console-only measurements; assertions keep both runners doing identical work. #\
+from "lib/formula.oak" import FormulaNode;Sample;compile_formula;numeric
+
+def next_value(int value) -> int:(return value+1)
+float started = time()
+int total = 0
+for i in range(100000):(
+    total += next_value(i)
+)
+assert(total == 5000050000)
+println("BENCH calls",round((time()-started)*1000000)/1000)
+
+started = time()
+total = 0
+for i in range(500000):(
+    total += (i%100)*3+2
+)
+assert(total == 75250000)
+println("BENCH arithmetic",round((time()-started)*1000000)/1000)
+
+type Point:(float x = 0;float y = 0;float z = 0)
+started = time()
+float sum = 0
+for i in range(20000):(
+    Point point = Point()
+    point.x = i
+    sum += point.x+point.y+point.z
+)
+assert(sum == 199990000)
+println("BENCH record_defaults",round((time()-started)*1000000)/1000)
+
+FormulaNode formula = compile_formula("100-(x-12)**2-(y-12)**2-(z-12)**2",true)
+started = time()
+int occupied = 0
+for y in range(24):(
+    for z in range(24):(
+        for x in range(24):(
+            Sample result = numeric(formula,x,y,z)
+            if result.valid and result.value > 0:(occupied += 1)
+        )
+    )
+)
+assert(occupied == 4139)
+println("BENCH sphere_sampling",round((time()-started)*1000000)/1000)
+
+formula = compile_formula("(x^y)&z|1",true)
+started = time()
+occupied = 0
+for y in range(8):(
+    for z in range(10):(
+        for x in range(12):(
+            Sample result = numeric(formula,x,y,z)
+            if result.valid and result.value > 3:(occupied += 1)
+        )
+    )
+)
+assert(occupied == 256)
+println("BENCH bitwise_sampling",round((time()-started)*1000000)/1000)

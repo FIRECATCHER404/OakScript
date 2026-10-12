@@ -1,0 +1,155 @@
+\# Headless gameplay checks. Run with: oakscript test.oak #\
+from "lib/physics.oak" import Body;Platform;step;request_jump
+from "lib/input.oak" import Controls
+from "lib/game.oak" import Game;reset;update;tick;hurt;TITLE;PLAYING;PAUSED;WON;LOST
+from "lib/level.oak" import * as level
+from "lib/trail-test.oak" import complete_trail
+
+int passed = 0
+float fixed_dt = 1.0 / 120.0
+
+def check(bool condition, string description):(
+    assert(condition, description)
+    passed += 1
+    print("PASS " + description)
+)
+
+def simulate(Body body, list surfaces, int frames, bool left, bool right, bool jump):(
+    for index in range(frames):(
+        step(body, surfaces, fixed_dt, left, right, jump, level.width)
+    )
+)
+
+list ground_surfaces = [Platform(0, 550, 2760, 90, true)]
+Body body = Body()
+simulate(body, ground_surfaces, 20, false, false, false)
+check(body.grounded and abs(body.y - 516) < 0.01, "gravity settles on a platform")
+simulate(body, ground_surfaces, 120, false, true, false)
+check(body.x > 340 and body.vx == 310, "right input accelerates to run speed")
+float before = body.x
+simulate(body, ground_surfaces, 120, true, false, false)
+check(body.x < before - 160 and body.facing == -1, "left input reverses direction")
+
+body = Body()
+simulate(body, ground_surfaces, 2, false, false, false)
+request_jump(body)
+simulate(body, ground_surfaces, 42, false, false, true)
+check(body.y < 410, "held jump clears the tallest platform step")
+float full_height = body.y
+body = Body()
+simulate(body, ground_surfaces, 2, false, false, false)
+request_jump(body)
+simulate(body, ground_surfaces, 5, false, false, true)
+simulate(body, ground_surfaces, 37, false, false, false)
+check(body.y > full_height + 40, "releasing jump makes a shorter hop")
+
+body = Body()
+simulate(body, ground_surfaces, 2, false, false, false)
+request_jump(body)
+simulate(body, ground_surfaces, 20, false, false, true)
+body.coyote = 0.0
+float old_vy = body.vy
+request_jump(body)
+simulate(body, ground_surfaces, 1, false, false, true)
+check(body.vy > old_vy, "jump cannot be repeated in midair")
+
+body = Body()
+body.y = 465.0
+body.vy = 400.0
+request_jump(body)
+simulate(body, ground_surfaces, 20, false, false, true)
+check(body.vy < 0, "jump buffer fires when the player lands")
+
+body = Body()
+body.x = 121.0
+body.y = 516.0
+body.grounded = true
+list edge = [Platform(0, 550, 150, 90, true)]
+simulate(body, edge, 8, false, true, true)
+request_jump(body)
+simulate(body, edge, 1, false, true, true)
+check(body.vy < 0, "coyote time permits a jump just after an edge")
+
+Game game = Game()
+Controls controls = Controls()
+reset(game)
+check(game.stage == TITLE and len(game.collected) == 10, "title state and ten collectibles initialize")
+controls.start_pressed = true
+update(game, controls, fixed_dt)
+controls.start_pressed = false
+check(game.stage == PLAYING, "Enter starts a run")
+controls.right = true
+update(game, controls, 0.1)
+controls.pause_pressed = true
+update(game, controls, 0.1)
+controls.pause_pressed = false
+float paused_x = game.player.x
+float paused_time = game.elapsed
+update(game, controls, 0.1)
+check(game.stage == PAUSED and game.player.x == paused_x and game.elapsed == paused_time, "pause freezes simulation")
+controls.pause_pressed = true
+update(game, controls, 0.01)
+controls.pause_pressed = false
+check(game.stage == PLAYING, "P resumes a paused run")
+
+reset(game)
+game.stage = <playing>
+game.player.x = 198.0
+game.player.y = 479.0
+tick(game, controls, fixed_dt)
+check(game.score == 1 and game.collected[0], "touching an acorn collects it")
+tick(game, controls, fixed_dt)
+check(game.score == 1, "a collected acorn cannot score twice")
+
+game.player.x = 1010.0
+game.player.y = 516.0
+tick(game, controls, fixed_dt)
+check(game.checkpoint == 1, "crossing a trail marker saves a checkpoint")
+game.player.x = 1340.0
+game.player.y = 516.0
+tick(game, controls, fixed_dt)
+check(game.hearts == 2 and game.player.x == 1030 and game.score == 1, "thorns cost a heart and respawn while keeping acorns")
+hurt(game)
+check(game.hearts == 2, "respawn invulnerability prevents repeated damage")
+game.invulnerable = 0.0
+game.player.y = 720.0
+tick(game, controls, fixed_dt)
+check(game.hearts == 1, "falling into a gap costs a heart")
+game.invulnerable = 0.0
+hurt(game)
+check(game.stage == LOST and game.hearts == 0, "three hits end a run")
+controls.restart_pressed = true
+update(game, controls, 0.0)
+controls.restart_pressed = false
+controls.right = false
+check(game.stage == PLAYING and game.hearts == 3 and game.score == 0 and game.player.x == 80, "R resets the run after losing")
+
+game.player.x = 2590.0
+game.player.y = 516.0
+tick(game, controls, fixed_dt)
+check(game.stage == PLAYING, "the exit requires every acorn")
+game.score = 10
+tick(game, controls, fixed_dt)
+check(game.stage == WON, "all ten acorns unlock the exit")
+controls.start_pressed = true
+update(game, controls, 0.0)
+check(game.stage == PLAYING and game.score == 0, "Enter starts another run after winning")
+
+\# Frame-rate-independent movement with the real fixed-step game loop. #\
+Game slow = Game()
+Game fast = Game()
+reset(slow)
+reset(fast)
+slow.stage = <playing>
+fast.stage = <playing>
+Controls walk = Controls()
+walk.right = true
+for index in range(30):(update(slow, walk, 1.0/30.0))
+for index in range(120):(update(fast, walk, 1.0/120.0))
+check(abs(slow.player.x-fast.player.x) < 3, "movement agrees at 30 and 120 simulated frames per second")
+
+print(string(passed) + " gameplay checks passed.")
+Game trail = Game()
+complete_trail(trail)
+check(trail.score == 10 and trail.hearts == 3 and trail.stage == WON, "complete trail is reachable with ordinary movement and jumps")
+print("Trail completed in " + string(int(trail.elapsed)) + " simulated seconds.")

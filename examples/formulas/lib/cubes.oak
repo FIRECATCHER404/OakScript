@@ -1,0 +1,77 @@
+\# Flat normals and indexed faces, batched into meshes once during generation. #\
+float VOXEL_SIZE = 0.16
+list face_normals = [vec3(-1,0,0),vec3(1,0,0),vec3(0,-1,0),vec3(0,1,0),vec3(0,0,-1),vec3(0,0,1)]
+list face_origins = [vec3(0,0,0),vec3(1,0,1),vec3(0,0,0),vec3(0,1,1),vec3(1,0,0),vec3(0,0,1)]
+list face_u = [vec3(0,0,1),vec3(0,0,-1),vec3(1,0,0),vec3(1,0,0),vec3(-1,0,0),vec3(1,0,0)]
+list face_v = [vec3(0,1,0),vec3(0,1,0),vec3(0,0,1),vec3(0,0,-1),vec3(0,1,0),vec3(0,1,0)]
+list corner_u = [0,1,1,0]
+list corner_v = [0,0,1,1]
+list face_corners = []
+for face in range(6):(
+    list corners = []
+    for corner in range(4):(
+        append(corners,face_origins[face]+face_u[face]*corner_u[corner]+face_v[face]*corner_v[corner])
+    )
+    append(face_corners,corners)
+)
+type Voxel:(
+    vec3 position
+    color tint
+    int cell = -1
+)
+def append_face(list vertices, list indices, vec3 low, vec3 size, color tint, int face):(
+    int first = len(vertices)
+    vec3 normal = face_normals[face]
+    for corner in range(4):(
+        append(vertices,vertex(low+face_corners[face][corner]*size,(0,0),normal,tint))
+    )
+    for index in [0,1,2,0,2,3]:(append(indices,first+index))
+)
+def append_box(list vertices, list indices, vec3 low, vec3 size, color tint):(
+    for face in range(6):(append_face(vertices,indices,low,size,tint,face))
+)
+def cube_batch(list voxels, int start, int end) -> mesh:(
+    list vertices = []
+    list indices = []
+    for index in range(start,end):(
+        Voxel voxel = voxels[index]
+        float half = VOXEL_SIZE*0.5
+        append_box(vertices,indices,voxel.position-vec3(half,half,half),vec3(VOXEL_SIZE,VOXEL_SIZE,VOXEL_SIZE),voxel.tint)
+    )
+    return create_mesh(vertices,indices)
+)
+def surface_batch(list voxels, list mask, int width, int grid_length, int height, int start, int end) -> list:(
+    \# Test all six neighbors in the complete occupancy grid, including across
+       mesh-batch boundaries. Fully enclosed cells generate no geometry. #\
+    list vertices = []
+    list indices = []
+    int layer = width*grid_length
+    float half = VOXEL_SIZE*0.5
+    vec3 size = (VOXEL_SIZE,VOXEL_SIZE,VOXEL_SIZE)
+    for index in range(start,end):(
+        Voxel voxel = voxels[index]
+        int cell = voxel.cell
+        int x = cell%width
+        int y = int(cell/layer)
+        int z = int(cell/width)%grid_length
+        vec3 low = voxel.position-vec3(half,half,half)
+        if x == 0 or not mask[cell-1]:(append_face(vertices,indices,low,size,voxel.tint,0))
+        if x == width-1 or not mask[cell+1]:(append_face(vertices,indices,low,size,voxel.tint,1))
+        if y == 0 or not mask[cell-layer]:(append_face(vertices,indices,low,size,voxel.tint,2))
+        if y == height-1 or not mask[cell+layer]:(append_face(vertices,indices,low,size,voxel.tint,3))
+        if z == 0 or not mask[cell-width]:(append_face(vertices,indices,low,size,voxel.tint,4))
+        if z == grid_length-1 or not mask[cell+width]:(append_face(vertices,indices,low,size,voxel.tint,5))
+    )
+    if len(vertices) == 0:(return [])
+    return [create_mesh(vertices,indices)]
+)
+
+def axes(vec3 extents) -> mesh:(
+    list vertices = []
+    list indices = []
+    vec3 origin = extents*(-0.5)-vec3(0.12,0.12,0.12)
+    append_box(vertices,indices,origin,vec3(extents.x+0.24,0.02,0.02),(235,95,95))
+    append_box(vertices,indices,origin,vec3(0.02,extents.y+0.24,0.02),(105,225,135))
+    append_box(vertices,indices,origin,vec3(0.02,0.02,extents.z+0.24),(100,155,245))
+    return create_mesh(vertices,indices)
+)

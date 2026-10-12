@@ -1,4 +1,4 @@
-/# General audio, without a graphics window. Source paths resolve beside this script. #/
+\# General audio, without a graphics window. Source paths resolve beside this script. #\
 audio_bus effects=create_audio_bus("effects")
 audio_bus music_bus=create_audio_bus("music")
 effects.volume=0.5

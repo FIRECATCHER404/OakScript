@@ -1,0 +1,16 @@
+window_handle canvas=create_window("OakScript | Buffered pixels",320,240)
+use_render(True)
+clear((0,0,0))
+
+def __main__():(
+    for y in range(240):(
+        for x in range(320):(set_pixel(x,y,((x^y)&255,(x*3)&255,(y*2)&255)))
+        render_screen()
+        if not window_open(canvas):(return)
+        if key_pressed("Escape"):(close_window();return)
+    )
+)
+
+def draw():(
+    if key_pressed("Escape"):(close_window())
+)

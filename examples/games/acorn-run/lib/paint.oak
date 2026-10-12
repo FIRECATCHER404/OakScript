@@ -1,0 +1,52 @@
+\# Ordinary Oak drawing helpers. No native plugin or game framework. #\
+
+color ink = (24, 46, 42)
+color cream = (245, 243, 219)
+color mint = (171, 223, 173)
+color gold = (245, 189, 85)
+color muted = (150, 180, 164)
+
+def rect(float x, float y, float width, float height, color tint):(
+    if width <= 0 or height <= 0:(return)
+    fill_poly([(x,y), (x+width,y), (x+width,y+height), (x,y+height)], tint)
+)
+
+def panel(float x, float y, float width, float height, float radius, color tint):(
+    fill_poly([
+        (x+radius,y), (x+width-radius,y), (x+width,y+radius),
+        (x+width,y+height-radius), (x+width-radius,y+height),
+        (x+radius,y+height), (x,y+height-radius), (x,y+radius)
+    ], tint)
+)
+
+def oval(float x, float y, float rx, float ry, color tint):(
+    list points = []
+    for index in range(14):(
+        float angle = index * pi * 2 / 14
+        append(points, (x + cos(angle) * rx, y + sin(angle) * ry))
+    )
+    fill_poly(points, tint)
+)
+
+def label(string text, float x, float y, float size, color tint, font face):(
+    draw_text2(text, x, y, tint, face, size)
+)
+
+def centered(string text, float x, float y, float size, color tint, font face):(
+    vec2 measured = measure_text(text, face, size)
+    draw_text2(text, x - measured.x / 2, y, tint, face, size)
+)
+
+def heart(float x, float y, color tint):(
+    fill_poly([
+        (x,y+5), (x+4,y), (x+9,y), (x+13,y+5), (x+17,y),
+        (x+22,y), (x+26,y+5), (x+26,y+12), (x+13,y+24), (x,y+12)
+    ], tint)
+)
+
+def acorn(float x, float y, float scale, color tint):(
+    oval(x, y + 3 * scale, 9 * scale, 11 * scale, tint)
+    panel(x-12*scale, y-8*scale, 24*scale, 9*scale, 3*scale, (131, 91, 55))
+    rect(x-1*scale, y-14*scale, 3*scale, 7*scale, (131, 91, 55))
+    rect(x-4*scale, y+2*scale, 3*scale, 7*scale, (255, 223, 141))
+)

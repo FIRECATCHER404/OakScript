@@ -1,0 +1,138 @@
+from "world.oak" import World;SIZE;HEIGHT;solid
+from "input.oak" import Controls
+
+type Player:(
+    float x = 16.5
+    float y = 6.001
+    float z = 7.5
+    float vy = 0.0
+    float height = 1.8
+    float eye = 1.62
+    float yaw = 18.0
+    float pitch = 18.0
+    float jump_buffer = 0.0
+    float coyote = 0.0
+    bool grounded = false
+    bool flying = false
+    bool crouched = false
+)
+
+float radius = 0.30
+float epsilon = 0.0001
+
+def respawn(Player player):(
+    player.x = 16.5; player.y = 6.001; player.z = 7.5
+    player.vy = 0.0; player.height = 1.8; player.eye = 1.62
+    player.yaw = 18.0; player.pitch = 18.0
+    player.jump_buffer = 0.0; player.coyote = 0.0
+    player.grounded = false; player.flying = false; player.crouched = false
+)
+
+def occupied(World world, float x, float y, float z, float height) -> bool:(
+    for by in range(int(floor(y+epsilon)), int(floor(y+height-epsilon))+1):(
+        for bz in range(int(floor(z-radius+epsilon)), int(floor(z+radius-epsilon))+1):(
+            for bx in range(int(floor(x-radius+epsilon)), int(floor(x+radius-epsilon))+1):(
+                if solid(world,bx,by,bz):(return true)
+            )
+        )
+    )
+    return false
+)
+
+def support(World world, float x, float y, float z, float height) -> bool:(
+    return occupied(world,x,y-0.08,z,height)
+)
+
+def intersects(Player player, int x, int y, int z) -> bool:(
+    return player.x+radius > x and player.x-radius < x+1 and player.z+radius > z and player.z-radius < z+1 and player.y+player.height > y and player.y < y+1
+)
+
+def slide(World world, Player player, float amount, int axis) -> bool:(
+    if amount == 0:(return false)
+    float x = player.x
+    float y = player.y
+    float z = player.z
+    if axis == 0:(x = clamp(x+amount,radius+epsilon,SIZE-radius-epsilon))
+    if axis == 1:(y += amount)
+    if axis == 2:(z = clamp(z+amount,radius+epsilon,SIZE-radius-epsilon))
+    bool blocked = occupied(world,x,y,z,player.height)
+    if blocked:(
+        \# Small fixed steps avoid tunneling; binary search keeps contact precise. #\
+        float low = 0.0
+        float high = 1.0
+        for i in range(12):(
+            float middle = (low+high)*0.5
+            float mx = player.x + (x-player.x)*middle
+            float my = player.y + (y-player.y)*middle
+            float mz = player.z + (z-player.z)*middle
+            if occupied(world,mx,my,mz,player.height):(high = middle)
+            else:(low = middle)
+        )
+        x = player.x+(x-player.x)*low
+        y = player.y+(y-player.y)*low
+        z = player.z+(z-player.z)*low
+    )
+    player.x = x; player.y = y; player.z = z
+    return blocked
+)
+
+def step(World world, Player player, Controls controls, float dt):(
+    if controls.crouch and not player.flying:(
+        player.height = 1.25
+        player.crouched = true
+    )
+    elif not occupied(world,player.x,player.y,player.z,1.8):(
+        player.height = 1.8
+        player.crouched = false
+    )
+    float target_eye = player.height-0.18
+    player.eye += (target_eye-player.eye)*min(1.0,dt*18.0)
+    float speed = 4.5
+    if player.crouched:(speed = 1.7)
+    if player.flying:(speed = 8.0)
+    float forward = controls.forward
+    float strafe = controls.strafe
+    float magnitude = sqrt(forward*forward+strafe*strafe)
+    if magnitude > 1:(forward /= magnitude; strafe /= magnitude)
+    float radians = player.yaw*0.0174532925199433
+    float dx = (sin(radians)*forward+cos(radians)*strafe)*speed*dt
+    float dz = (cos(radians)*forward-sin(radians)*strafe)*speed*dt
+    if player.crouched and player.grounded:(
+        if not support(world,player.x+dx,player.y,player.z,player.height):(dx = 0.0)
+        if not support(world,player.x,player.y,player.z+dz,player.height):(dz = 0.0)
+        if not support(world,player.x+dx,player.y,player.z+dz,player.height):(dx = 0.0; dz = 0.0)
+    )
+    slide(world,player,dx,0)
+    slide(world,player,dz,2)
+
+    if player.flying:(
+        player.vy = float(int(controls.jump)-int(controls.crouch))*speed
+        player.grounded = false
+        player.jump_buffer = 0.0
+        player.coyote = 0.0
+    )
+    else:(
+        if player.grounded:(player.coyote = 0.10)
+        else:(player.coyote = max(0.0,player.coyote-dt))
+        player.jump_buffer = max(0.0,player.jump_buffer-dt)
+        if player.jump_buffer > 0 and player.coyote > 0:(
+            player.vy = 8.0
+            player.jump_buffer = 0.0; player.coyote = 0.0
+            player.grounded = false
+        )
+        player.vy = max(-24.0,player.vy-22.0*dt)
+    )
+    bool hit = slide(world,player,player.vy*dt,1)
+    player.grounded = hit and player.vy < 0
+    if hit:(player.vy = 0.0)
+    if player.y < -10:(respawn(player))
+)
+
+def eye_position(Player player) -> vec3:(return vec3(player.x,player.y+player.eye,player.z))
+
+def direction(Player player) -> vec3:(
+    float yaw = player.yaw*0.0174532925199433
+    float pitch = player.pitch*0.0174532925199433
+    return vec3(sin(yaw)*cos(pitch), -sin(pitch), cos(yaw)*cos(pitch))
+)
+

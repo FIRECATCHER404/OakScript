@@ -1,0 +1,87 @@
+#version 450
+// Variance-guided a-trous filtering, with a robust first-pass firefly clamp.
+layout(local_size_x=8,local_size_y=8) in;
+layout(set=0,binding=0,std430) readonly buffer Parameters { float p[]; };
+layout(set=0,binding=1,std430) readonly buffer InputLighting { vec4 inputLighting[]; };
+layout(set=0,binding=2,std430) readonly buffer Guides { vec4 guides[]; };
+layout(set=0,binding=3,std430) writeonly buffer OutputLighting { vec4 outputLighting[]; };
+const vec3 LUMA=vec3(0.2126,0.7152,0.0722);
+const float kernel[5]=float[](1.0,4.0,6.0,4.0,1.0);
+vec3 cameraRay(ivec2 pixel) {
+    vec2 screen=(vec2(pixel)+0.5)/vec2(p[16],p[17])*2.0-1.0;
+    screen.y=-screen.y;screen.x*=p[16]/p[17];screen*=0.65;
+    return normalize(vec3(p[4],p[5],p[6])+vec3(p[8],p[9],p[10])*screen.x+vec3(p[12],p[13],p[14])*screen.y);
+}
+float geometryWeight(int center,int neighbor,ivec2 pixel,ivec2 at,int step) {
+    vec4 geometry=guides[center*3], other=guides[neighbor*3];
+    vec4 material=guides[center*3+1], theirs=guides[neighbor*3+1];
+    if(abs(material.a-theirs.a)>0.1||guides[neighbor*3+2].z>0.5) return 0.0;
+    float normal=pow(max(dot(geometry.xyz,other.xyz),0.0),64.0);
+    // A sloping floor remains one surface even when ray depths vary rapidly.
+    vec3 difference=cameraRay(at)*other.w-cameraRay(pixel)*geometry.w;
+    float footprint=max(0.002,geometry.w*1.3/p[17]*float(step));
+    float plane=exp(-abs(dot(geometry.xyz,difference))/(footprint*1.5));
+    return normal*plane*exp(-length(material.rgb-theirs.rgb)*16.0);
+}
+float median(inout float values[8],int count) {
+    for(int i=1;i<count;i++) {
+        float value=values[i];int j=i;
+        while(j>0&&values[j-1]>value) { values[j]=values[j-1];j--; }
+        values[j]=value;
+    }
+    return (values[(count-1)/2]+values[count/2])*0.5;
+}
+void main() {
+    ivec2 pixel=ivec2(gl_GlobalInvocationID.xy),size=ivec2(p[16],p[17]);
+    if(any(greaterThanEqual(pixel,size))) return;
+    int index=pixel.y*size.x+pixel.x, pass=int(p[32]);
+    vec4 meta=guides[index*3+2];
+    vec3 original=inputLighting[index].rgb;
+    float variance=pass==0?meta.w:inputLighting[index].a;
+    if(meta.z>0.5) { outputLighting[index]=vec4(original,variance);return; }
+    bool polished=meta.x<0.10&&meta.y>0.8;
+    int step=polished?1:(1<<pass);
+    float cap=1e20;
+    if(pass==0) {
+        float values[8];int count=0;
+        for(int y=-1;y<=1;y++) for(int x=-1;x<=1;x++) {
+            if(x==0&&y==0) continue;
+            ivec2 at=pixel+ivec2(x,y);
+            if(any(lessThan(at,ivec2(0)))||any(greaterThanEqual(at,size))) continue;
+            int j=at.y*size.x+at.x;
+            if(geometryWeight(index,j,pixel,at,1)>0.05) values[count++]=dot(inputLighting[j].rgb,LUMA);
+        }
+        if(count>=3) {
+            float middle=median(values,count);
+            for(int i=0;i<count;i++) values[i]=abs(values[i]-middle);
+            float deviation=median(values,count);
+            cap=middle+max(0.05,6.0*deviation+middle*0.5)*(polished?3.0:1.0);
+        }
+    }
+    float luma=dot(original,LUMA),scale=min(1.0,cap/max(luma,1e-8));
+    vec3 center=original*scale;variance*=scale*scale;
+    vec3 total=vec3(0);float weight=0.0,noise=0.0;
+    for(int y=-2;y<=2;y++) for(int x=-2;x<=2;x++) {
+        ivec2 at=pixel+ivec2(x,y)*step;
+        if(any(lessThan(at,ivec2(0)))||any(greaterThanEqual(at,size))) continue;
+        int j=at.y*size.x+at.x;
+        float w=kernel[x+2]*kernel[y+2]*geometryWeight(index,j,pixel,at,step);
+        if(w<0.00001) continue;
+        vec3 value=inputLighting[j].rgb;
+        float v=pass==0?guides[j*3+2].w:inputLighting[j].a;
+        float brightness=dot(value,LUMA),s=min(1.0,cap/max(brightness,1e-8));
+        value*=s;v*=s*s;
+        float sigma=4.0*sqrt(max(0.0,variance+v))+0.03+0.12*max(dot(center,LUMA),dot(value,LUMA));
+        w*=exp(-abs(dot(value-center,LUMA))/sigma);
+        total+=value*w;weight+=w;noise+=v*w*w;
+    }
+    vec3 filtered=total/max(weight,1e-8);
+    // Sample count alone does not prove convergence: even a 514-sample frame
+    // can contain rare bright paths. Fade according to measured uncertainty.
+    float relativeNoise=sqrt(max(0.0,max(meta.w,variance)))/max(0.02,luma);
+    float lowSamples=1.0-smoothstep(64.0,512.0,p[19]*p[29]);
+    float strength=max(lowSamples,clamp(relativeNoise*4.0,0.0,1.0))*(polished?0.45:1.0);
+    // Keep the robust spike rejection active even at high sample counts.
+    strength=max(strength,min(1.0,(1.0-scale)*2.0));
+    outputLighting[index]=vec4(mix(original,filtered,strength),mix(variance,noise/max(weight*weight,1e-8),strength));
+}

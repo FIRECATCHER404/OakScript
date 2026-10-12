@@ -1,0 +1,103 @@
+from "lib/world.oak" import Body;World;add;delete;expire;prototypes;names;link
+from "lib/game.oak" import Game;Controls;update;choose;SHOT_SCALE;SHOT_LIFETIME;basis
+from "lib/motion.oak" import apply_motion;gap_at;rotation_at;floor_gap
+from "lib/physics.oak" import step;STEP
+int passed=0
+def check(bool condition,string message):(
+    assert(condition,message);passed+=1;print("PASS",message)
+)
+
+def shoot(int selected,float duration)->Game:(
+    Game game=Game();game.camera=(0,3,0);game.pitch=0.0;choose(game,selected)
+    Controls input=Controls();input.shoot=true;input.held=true;input.place=true
+    update(game,input,0.0,100.0)
+    check(game.charging and len(game.world.bodies)==0,"press only starts charging "+names[selected])
+    input.place=false;input.held=false;input.release=true
+    update(game,input,0.0,100.0+duration)
+    return game
+)
+
+for selected in range(len(names)):(
+    Game fired=shoot(selected,2.0)
+    list normal=prototypes(selected,vec3(1,1,1));list parts=fired.world.bodies
+    check(len(parts)==len(normal) and all([body.inverse_mass>0 for body in parts]),"whole selected object is fired dynamically "+names[selected])
+    for i in range(len(parts)):(
+        check(length(parts[i].size-normal[i].size*SHOT_SCALE)<0.00000001,"projectile dimensions scale uniformly "+string(selected)+"/"+string(i))
+        check(abs(parts[i].inverse_mass-normal[i].inverse_mass/SHOT_SCALE**3)<0.00000001,"scaled mass retains density "+string(selected)+"/"+string(i))
+        check(length(parts[i].inverse_inertia-normal[i].inverse_inertia/SHOT_SCALE**5)<0.00000001,"scaled inertia matches dimensions "+string(selected)+"/"+string(i))
+        check(parts[i].velocity==vec3(0,0,30),"every fired part shares the charged velocity "+string(selected)+"/"+string(i))
+    )
+    check(fired.world.projectiles[parts[0].group][1]==162.0,"lifetime deadline is exactly sixty seconds after release "+names[selected])
+    if selected==4:(
+        check(len(fired.world.joints)==12,"miniature dummy retains all twelve joints")
+        check(max(*[length(j.a.position+j.a.rotation*j.anchor_a-j.b.position-j.b.rotation*j.anchor_b) for j in fired.world.joints])<0.00000001,"scaled joint anchors remain aligned")
+    )
+    if selected>=5:(check(len(fired.world.lights)==1 and parts[0].emission==normal[0].emission,"light projectile remains an emitter "+names[selected]))
+    for body in parts:(body.sleeping=true)
+    check(expire(fired.world,161.999999)==0 and len(fired.world.bodies)==len(parts),"sleeping shot survives until its deadline "+names[selected])
+    check(expire(fired.world,162.0)==1 and len(fired.world.bodies)==0 and len(fired.world.joints)==0 and len(fired.world.lights)==0 and len(fired.world.projectiles)==0,"entire projectile despawns at sixty seconds "+names[selected])
+)
+Game quick=shoot(0,0.0);Game longer=shoot(0,3.5)
+check(quick.world.bodies[0].velocity.z==6.0 and longer.world.bodies[0].velocity.z==48.0,"charge duration controls speed without rounding to frames")
+Game latch=Game();latch.camera=(0,3,0);latch.pitch=0.0
+Controls input=Controls();input.place=true;input.shoot=true;input.held=true
+update(latch,input,0.0,10.0)
+input.place=false;input.shoot=false;update(latch,input,0.0,11.0)
+check(latch.charging and latch.charge_seconds==1.0,"releasing Ctrl does not lose the active mouse charge")
+input.held=false;input.release=true;update(latch,input,0.0,12.0)
+check(latch.world.bodies[0].velocity.z==30.0 and not latch.charging and not latch.shooting,"mouse release fires the latched charge and restores normal preview")
+int shot_id=latch.world.bodies[0].id;delete(latch.world,shot_id)
+check(len(latch.world.projectiles)==0 and expire(latch.world,1000.0)==0,"manual deletion removes its expiry record")
+for cancel in [0,1,2,3]:(
+    Game canceled=Game();canceled.camera=(0,3,0)
+    Controls hold=Controls();hold.place=true;hold.shoot=true;hold.held=true
+    update(canceled,hold,0.0,10.0);hold.place=false;hold.held=false;hold.release=true
+    if cancel==0:(hold.focused=false)
+    if cancel==1:(hold.captured=false)
+    if cancel==2:(hold.escape=true)
+    if cancel==3:(hold.quit=true)
+    update(canceled,hold,0.0,12.0)
+    check(not canceled.charging and len(canceled.world.bodies)==0,"focus/capture/quit cancels a charge without firing "+string(cancel))
+)
+Game blocked=Game();blocked.camera=(0,3,0);blocked.pitch=0.0
+add(blocked.world,0,vec3(0,3,0.36),true)
+Controls blocked_click=Controls();blocked_click.place=true;blocked_click.shoot=true;blocked_click.held=true
+update(blocked,blocked_click,0.0,0.0);blocked_click.place=false;blocked_click.held=false;blocked_click.release=true
+update(blocked,blocked_click,0.0,1.0)
+check(len(blocked.world.bodies)==1 and len(blocked.world.projectiles)==0,"blocked muzzle cannot create an intersecting shot")
+Game ordinary=Game();ordinary.camera=(0,3,0);ordinary.pitch=0.0
+Controls place=Controls();place.place=true;update(ordinary,place,0.0,1.0)
+check(ordinary.world.bodies[0].size==vec3(0.27,0.27,0.27) and len(ordinary.world.projectiles)==0,"ordinary left-click placement stays full sized and permanent")
+check(prototypes(2,vec3(1,1,1))[0].rotation==quat(0,0,0,1),"capsules are upright in ordinary and charged previews")
+
+for moving_type in [0,1,2,3]:(for obstacle_type in [0,1,2]:(
+    World world=World();world.air_density=0.0;world.audit_motion=true
+    Body wall=add(world,obstacle_type,vec3(0,3,2),true)[0]
+    if obstacle_type==0:(wall.size=(2,2,0.01);wall.bound=length(wall.size))
+    Body moving=add(world,moving_type,vec3(0,3,0),false,vec3(1,1,1),SHOT_SCALE)[0]
+    moving.velocity=(0,0,600);step(world,STEP)
+    check(moving.position.z<2.0 and gap_at(moving,moving.position,moving.rotation,wall)[0]>=-0.00000002,"fast shot cannot cross collider "+string(moving_type)+"/"+string(obstacle_type))
+    check(world.motion_commits>0,"integration validates each committed pose "+string(moving_type)+"/"+string(obstacle_type))
+    apply_motion(world,moving,vec3(0,-100,0),vec3(0,0,0))
+    check(floor_gap(moving,moving.position,moving.rotation)>=-0.00000002,"swept motion cannot cross terrain "+string(moving_type)+"/"+string(obstacle_type))
+))
+World opposite=World();opposite.air_density=0.0;opposite.audit_motion=true
+Body left=add(opposite,1,vec3(-1,3,0),false,vec3(1,1,1),SHOT_SCALE)[0]
+Body right=add(opposite,1,vec3(1,3,0),false,vec3(1,1,1),SHOT_SCALE)[0]
+left.velocity=(600,0,0);right.velocity=(-600,0,0);step(opposite,STEP)
+check(left.position.x<right.position.x and gap_at(left,left.position,left.rotation,right)[0]>=-0.00000002,"opposing fast bodies cannot exchange sides through each other")
+
+World rotating=World();rotating.audit_motion=true
+Body box=add(rotating,0,vec3(0,1.411,0))[0];box.size=(1,1,0.1);box.bound=length(box.size);box.rotation=quat_from_euler((0,0,40))
+vec3 angle=(0,0,0.17453292519943295)
+check(floor_gap(box,box.position,box.rotation)>0.0 and floor_gap(box,box.position,rotation_at(box.rotation,angle,1.0))>0.0,"rotation test has clear endpoints")
+tuple accepted=apply_motion(rotating,box,vec3(0,0,0),angle)
+check(length(accepted[1])<length(angle) and floor_gap(box,box.position,box.rotation)>=-0.00000002,"rotation stops before its intermediate corner enters terrain")
+World forced=World();forced.audit_motion=true;forced.air_density=0.0
+Body wall=add(forced,0,vec3(1.5,3,0),true)[0];wall.size=(0.01,2,2);wall.bound=length(wall.size)
+Body limb=add(forced,1,vec3(0,3,0),false,vec3(1,1,1),SHOT_SCALE)[0]
+Body anchor=add(forced,1,vec3(3,3,0),true)[0]
+link(forced,limb,anchor,vec3(1.5,3,0));anchor.position.x=6.0
+for frame in range(5):(step(forced,STEP))
+check(limb.position.x<1.5 and gap_at(limb,limb.position,limb.rotation,wall)[0]>=-0.00000002 and forced.motion_commits>5,"all joint constraint passes reject motion into a barrier")
+print("raygame shooting:",passed,"checks passed")

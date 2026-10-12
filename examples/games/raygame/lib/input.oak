@@ -1,0 +1,22 @@
+from "game.oak" import Controls
+def poll(Controls input):(
+    input.focused=window_focused()
+    input.quit=key_pressed("Q")
+    input.escape=key_pressed("Escape")
+    bool shift=key_down("LShift") or key_down("RShift")
+    bool control=key_down("ControlLeft") or key_down("ControlRight")
+    input.alt=key_down("AltLeft") or key_down("AltRight")
+    input.fixed=false
+    input.shoot=control
+    input.forward=float(int(key_down("W"))-int(key_down("S")))
+    input.strafe=float(int(key_down("D"))-int(key_down("A")))
+    input.vertical=float(int(key_down("Space"))-int(shift))
+    input.look=(0,0)
+    if mouse_locked():(input.look=mouse_delta())
+    input.scroll=-int(mouse_wheel())
+    input.place=mouse_locked() and mouse_pressed("Left")
+    input.erase=mouse_locked() and mouse_pressed("Right")
+    input.held=mouse_down("Left")
+    input.release=mouse_released("Left")
+    input.captured=mouse_locked()
+)

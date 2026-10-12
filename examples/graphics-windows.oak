@@ -12,4 +12,4 @@ def draw():(
         if key_pressed("Escape"):(close_window(second))
     )
 )
-/# draw runs once each frame. Select a window before rendering or reading its inputs. #/
+\# draw runs once each frame. Select a window before rendering or reading its inputs. #\

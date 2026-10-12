@@ -1,0 +1,24 @@
+from "lib/world.oak" import initialize;random_color
+from "lib/game.oak" import Game;Controls;update;refresh_preview
+from "lib/input.oak" import poll
+from "lib/render.oak" import Renderer;create;render
+
+Game game=Game()
+\\initialize(game.world)
+game.next_color=random_color()
+refresh_preview(game)
+use_cuda(true)
+window "raygame" 1280 720
+Renderer renderer=create()
+Controls controls=Controls()
+if "--uncaptured" not in args:(lock_mouse(true))
+print("raygame: WASD / Space / Shift fly; wheel chooses; Alt+wheel changes samples; left-click places; Ctrl+left hold charges, release shoots; right-click deletes; Esc capture; Q quit.")
+
+def draw():(
+    poll(controls)
+    if controls.quit:(lock_mouse(false);close_window();return)
+    if controls.escape:(lock_mouse(not mouse_locked()))
+    update(game,controls,delta_time)
+    renderer.samples_per_frame=game.samples_per_frame
+    render(renderer,game)
+)

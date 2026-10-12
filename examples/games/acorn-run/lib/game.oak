@@ -1,0 +1,132 @@
+from "physics.oak" import Body;overlap;step;request_jump
+from "input.oak" import Controls
+from "level.oak" import * as level
+
+options Stage:(title;playing;paused;won;lost)
+Stage TITLE = <title>
+Stage PLAYING = <playing>
+Stage PAUSED = <paused>
+Stage WON = <won>
+Stage LOST = <lost>
+type Game:(
+    Body player = Body()
+    Stage stage = <title>
+    list collected = []
+    int score = 0
+    int hearts = 3
+    int checkpoint = 0
+    float elapsed = 0.0
+    float animation = 0.0
+    float accumulator = 0.0
+    float camera_x = 0.0
+    float invulnerable = 0.0
+    float notice = 0.0
+    string message = ""
+)
+
+def reset(Game game):(
+    game.player = Body()
+    game.collected = []
+    for acorn in level.acorns:(append(game.collected, false))
+    game.score = 0
+    game.hearts = 3
+    game.checkpoint = 0
+    game.elapsed = 0.0
+    game.accumulator = 0.0
+    game.camera_x = 0.0
+    game.invulnerable = 0.0
+    game.notice = 0.0
+    game.message = ""
+)
+
+def hurt(Game game):(
+    if game.invulnerable > 0:(return)
+    game.hearts -= 1
+    if game.hearts <= 0:(
+        game.stage = <lost>
+        return
+    )
+    game.player = Body()
+    if game.checkpoint > 0:(game.player.x = level.checkpoints[game.checkpoint - 1] + 30)
+    game.invulnerable = 1.6
+    game.accumulator = 0.0
+    game.message = "Back at the trail marker. Your acorns are safe."
+    game.notice = 2.5
+)
+
+def tick(Game game, Controls controls, float dt):(
+    step(game.player, level.platforms, dt, controls.left, controls.right, controls.jump, level.width)
+    game.elapsed += dt
+    game.invulnerable = max(0.0, game.invulnerable - dt)
+    game.notice = max(0.0, game.notice - dt)
+    Body player = game.player
+    if player.y > 700:(hurt(game);return)
+    for hazard in level.spikes:(
+        if overlap(player.x, player.y, player.width, player.height, hazard.x + 5, 536, hazard.y - 10, 14):(
+            hurt(game)
+            return
+        )
+    )
+    for index in range(len(level.patrols)):(
+        float x = level.beetle_x(index, game.elapsed)
+        if overlap(player.x, player.y, player.width, player.height, x, 528, 32, 22):(
+            hurt(game)
+            return
+        )
+    )
+    for index in range(len(level.acorns)):(
+        if not game.collected[index]:(
+            vec2 acorn = level.acorns[index]
+            if overlap(player.x - 3, player.y - 3, player.width + 6, player.height + 6, acorn.x - 11, acorn.y - 14, 22, 28):(
+                game.collected[index] = true
+                game.score += 1
+            )
+        )
+    )
+    for index in range(len(level.checkpoints)):(
+        if index + 1 > game.checkpoint and player.x >= level.checkpoints[index]:(
+            game.checkpoint = index + 1
+            game.message = "Trail marker saved"
+            game.notice = 2.0
+        )
+    )
+    if player.x > 2580 and player.y > 450:(
+        if game.score == len(level.acorns):(
+            game.stage = <won>
+        )
+        elif game.notice <= 0:(
+            game.message = "Find all ten acorns to open the grove."
+            game.notice = 3.0
+        )
+    )
+)
+
+def update(Game game, Controls controls, float frame_dt):(
+    float dt = clamp(frame_dt, 0.0, 0.10)
+    game.animation += dt
+    if controls.restart_pressed:(
+        reset(game)
+        game.stage = <playing>
+    )
+    if controls.start_pressed:(
+        if game.stage == TITLE or game.stage == WON or game.stage == LOST:(
+            reset(game)
+            game.stage = <playing>
+        )
+        elif game.stage == PAUSED:(game.stage = <playing>)
+    )
+    if controls.pause_pressed:(
+        if game.stage == PLAYING:(game.stage = <paused>)
+        elif game.stage == PAUSED:(game.stage = <playing>)
+    )
+    if game.stage != PLAYING:(game.accumulator = 0.0;return)
+    if controls.jump_pressed:(request_jump(game.player))
+    game.accumulator += dt
+    float fixed_dt = 1.0 / 120.0
+    while game.accumulator >= fixed_dt and game.stage == PLAYING:(
+        game.accumulator -= fixed_dt
+        tick(game, controls, fixed_dt)
+    )
+    float target = clamp(game.player.x - 290.0, 0.0, level.width - 960.0)
+    game.camera_x += (target - game.camera_x) * min(1.0, dt * 8.0)
+)

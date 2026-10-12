@@ -1,0 +1,70 @@
+from "world.oak" import World;solid;get;inside;change
+from "physics.oak" import Player;intersects
+
+type Hit:(
+    bool found = false
+    int x = 0
+    int y = 0
+    int z = 0
+    int nx = 0
+    int ny = 0
+    int nz = 0
+    int block = 0
+    float distance = 0.0
+)
+
+def sign(float value) -> int:(
+    if value > 0:(return 1)
+    if value < 0:(return -1)
+    return 0
+)
+
+def cast(World world, vec3 origin, vec3 direction, float reach) -> Hit:(
+    Hit hit = Hit()
+    if length(direction) < 0.00001 or reach < 0:(return hit)
+    vec3 ray = normalize(direction)
+    int x = int(floor(origin.x)); int y = int(floor(origin.y)); int z = int(floor(origin.z))
+    int sx = sign(ray.x); int sy = sign(ray.y); int sz = sign(ray.z)
+    float dx = 1e20; float dy = 1e20; float dz = 1e20
+    float tx = 1e20; float ty = 1e20; float tz = 1e20
+    if sx != 0:(dx = abs(1.0/ray.x); tx = (x+int(sx>0)-origin.x)/ray.x)
+    if sy != 0:(dy = abs(1.0/ray.y); ty = (y+int(sy>0)-origin.y)/ray.y)
+    if sz != 0:(dz = abs(1.0/ray.z); tz = (z+int(sz>0)-origin.z)/ray.z)
+    float traveled = 0.0
+    \# At most three voxel boundaries per unit plus the start cell. #\
+    for iteration in range(int(ceil(reach*3))+4):(
+        if solid(world,x,y,z):(
+            hit.found = true; hit.x = x; hit.y = y; hit.z = z
+            hit.block = get(world,x,y,z); hit.distance = traveled
+            return hit
+        )
+        if tx <= ty and tx <= tz:(
+            traveled = tx; tx += dx; x += sx
+            hit.nx = -sx; hit.ny = 0; hit.nz = 0
+        )
+        elif ty <= tz:(
+            traveled = ty; ty += dy; y += sy
+            hit.nx = 0; hit.ny = -sy; hit.nz = 0
+        )
+        else:(
+            traveled = tz; tz += dz; z += sz
+            hit.nx = 0; hit.ny = 0; hit.nz = -sz
+        )
+        if traveled > reach:(return hit)
+    )
+    return hit
+)
+
+def place(World world, Player player, Hit hit, int block) -> bool:(
+    if not hit.found or block < 1 or block > 8:(return false)
+    if hit.nx == 0 and hit.ny == 0 and hit.nz == 0:(return false)
+    int x = hit.x+hit.nx; int y = hit.y+hit.ny; int z = hit.z+hit.nz
+    if not inside(x,y,z) or solid(world,x,y,z) or intersects(player,x,y,z):(return false)
+    return change(world,x,y,z,block)
+)
+
+def break_block(World world, Hit hit) -> bool:(
+    if not hit.found or hit.y == 0:(return false)
+    return change(world,hit.x,hit.y,hit.z,0)
+)
+

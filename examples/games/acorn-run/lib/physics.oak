@@ -1,0 +1,71 @@
+\# Pixel coordinates: +Y is downward. Platforms are one-way surfaces.
+   Physics is independent of graphics/input, so it can run without a window. #\
+
+type Body:(
+    float x = 80.0
+    float y = 516.0
+    float width = 28.0
+    float height = 34.0
+    float vx = 0.0
+    float vy = 0.0
+    float coyote = 0.0
+    float jump_buffer = 0.0
+    bool grounded = false
+    int facing = 1
+)
+
+type Platform:(
+    float x = 0.0
+    float y = 0.0
+    float width = 100.0
+    float height = 22.0
+    bool earth = false
+)
+
+def overlap(float ax, float ay, float aw, float ah, float bx, float by, float bw, float bh) -> bool:(
+    return ax < bx + bw and ax + aw > bx and ay < by + bh and ay + ah > by
+)
+
+def request_jump(Body body):(
+    body.jump_buffer = 0.14
+)
+
+def step(Body body, list platforms, float dt, bool left, bool right, bool jump_held, float world_width):(
+    float direction = 0.0
+    if left:(direction -= 1)
+    if right:(direction += 1)
+    float target = direction * 310.0
+    float acceleration = 1700.0
+    if not body.grounded:(acceleration = 1200.0)
+    body.vx += clamp(target - body.vx, -acceleration * dt, acceleration * dt)
+    if direction > 0:(body.facing = 1)
+    if direction < 0:(body.facing = -1)
+
+    if body.grounded:(body.coyote = 0.10)
+    else:(body.coyote = max(0.0, body.coyote - dt))
+    body.jump_buffer = max(0.0, body.jump_buffer - dt)
+    if body.jump_buffer > 0 and body.coyote > 0:(
+        body.vy = -625.0
+        body.grounded = false
+        body.coyote = 0.0
+        body.jump_buffer = 0.0
+    )
+    if not jump_held and body.vy < -230.0:(body.vy = -230.0)
+
+    body.x = clamp(body.x + body.vx * dt, 0.0, world_width - body.width)
+    float old_bottom = body.y + body.height
+    body.vy = min(body.vy + 1650.0 * dt, 1000.0)
+    body.y += body.vy * dt
+    body.grounded = false
+    if body.vy >= 0:(
+        for platform in platforms:(
+            if body.x + body.width > platform.x and body.x < platform.x + platform.width:(
+                if old_bottom <= platform.y + 0.5 and body.y + body.height >= platform.y:(
+                    body.y = platform.y - body.height
+                    body.vy = 0.0
+                    body.grounded = true
+                )
+            )
+        )
+    )
+)

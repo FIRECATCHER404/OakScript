@@ -1,0 +1,60 @@
+\# Eight real voxel meshes and their source PNGs, using the game's renderer. #\
+from "lib/world.oak" import World;empty;raw_set;block_names
+from "lib/meshing.oak" import build;draw_chunks
+from "lib/textures.oak" import icon
+from "lib/render.oak" import sky;rect;label;center;face;block_shader;cream;muted;gold
+
+World world = World()
+empty(world)
+for block in range(1,9):(
+    int x = 4+((block-1)%4)*6
+    int y = 5
+    if block >= 5:(y = 1)
+    for dz in range(2):(
+        for dy in range(2):(
+            for dx in range(2):(raw_set(world,x+dx,y+dy,12+dz,block))
+        )
+    )
+)
+list chunks = build(world)
+camera view = create_camera()
+view.position = (14,8.5,-2)
+view.rotation = (17,0,0)
+view.fov = 75.0
+view.near = 0.04
+face.billboard = true
+face.depth_test = false
+window "Oak Blocks | Dedicated texture gallery" 1280 800
+
+def draw():(
+    vec2 dimensions = window_size()
+    float width = dimensions.x
+    float height = dimensions.y
+    reset_shader()
+    sky(width,height)
+    set_camera(view)
+    blend.mode = <opaque>
+    depth.mode = <less>
+    cull.mode = <none>
+    use_shader(block_shader)
+    draw_chunks(chunks)
+    reset_shader()
+    for block in range(1,9):(
+        float x = 5+((block-1)%4)*6.0
+        float y = 4.4
+        if block >= 5:(y = 0.4)
+        draw_text3(block_names[block],vec3(x,y,11.8),view.position,cream,face,30,0.025)
+    )
+    blend.mode = <alpha>
+    rect(24,20,width-48,112,(18,33,35,235))
+    label("Dedicated block textures",46,34,37,cream)
+    label("3D: the game's voxel meshes and lighting   /   Below: their PNG files",46,85,21,muted)
+    rect(24,height-174,width-48,150,(18,33,35,235))
+    for block in range(1,9):(
+        float x = 24+(block-0.5)*(width-48)/8.0
+        texture_blit(icon(block),x-32,height-151,64,64)
+        center(block_names[block],x,height-78,19,cream)
+    )
+    center("Replace a PNG in assets/blocks, then restart.  ESC closes this gallery.",width*0.5,height-48,17,gold)
+    if key_pressed("Escape") or key_down("Escape"):(close_window())
+)

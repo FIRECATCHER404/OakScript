@@ -7,4 +7,4 @@ def draw():(
     clear((24,30,38))
     texture_blit(surface,80,40,480,400)
 )
-/# Storage image and draw share this window's GPU device. No readback or re-upload per frame. #/
+\# Storage image and draw share this window's GPU device. No readback or re-upload per frame. #\

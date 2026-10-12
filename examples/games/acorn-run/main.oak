@@ -1,0 +1,15 @@
+from "lib/game.oak" import Game;reset;update
+from "lib/input.oak" import Controls;poll
+from "lib/render.oak" import render
+
+window "Acorn Run | OakScript" 960 640
+Game game = Game()
+Controls controls = Controls()
+reset(game)
+
+def draw():(
+    poll(controls)
+    if controls.quit:(close_window();return)
+    update(game, controls, delta_time)
+    render(game)
+)

@@ -1,0 +1,108 @@
+from "world.oak" import World;SIZE;HEIGHT;CHUNK;CHUNKS;get;solid
+from "textures.oak" import texture_names;surfaces;surface_index
+
+\# Each face has an outward normal and two axes. Standard 0..1 UVs map
+   its dedicated PNG; white vertex colors carry only ambient occlusion. #\
+list normals = [vec3(-1,0,0),vec3(1,0,0),vec3(0,-1,0),vec3(0,1,0),vec3(0,0,-1),vec3(0,0,1)]
+list origins = [vec3(0,0,0),vec3(1,0,1),vec3(0,0,0),vec3(0,1,1),vec3(1,0,0),vec3(0,0,1)]
+list axes_u = [vec3(0,0,1),vec3(0,0,-1),vec3(1,0,0),vec3(1,0,0),vec3(-1,0,0),vec3(1,0,0)]
+list axes_v = [vec3(0,1,0),vec3(0,1,0),vec3(0,0,1),vec3(0,0,-1),vec3(0,1,0),vec3(0,1,0)]
+list corners_u = [0,1,1,0]
+list corners_v = [0,0,1,1]
+
+type ChunkMesh:(
+    int x = 0
+    int z = 0
+    int faces = 0
+    list geometry = []
+    int rebuilds = 0
+)
+
+def ambient(World world, vec3 cell, vec3 normal, vec3 u, vec3 v, int cu, int cv) -> float:(
+    vec3 edge_u = u*(cu*2-1)
+    vec3 edge_v = v*(cv*2-1)
+    vec3 base = cell+normal
+    vec3 a = base+edge_u
+    vec3 b = base+edge_v
+    vec3 c = base+edge_u+edge_v
+    int side_a = int(solid(world,int(a.x),int(a.y),int(a.z)))
+    int side_b = int(solid(world,int(b.x),int(b.y),int(b.z)))
+    int diagonal = int(solid(world,int(c.x),int(c.y),int(c.z)))
+    if side_a == 1 and side_b == 1:(return 0.57)
+    return 1.0-(side_a+side_b+diagonal)*0.14
+)
+
+def rebuild(World world, ChunkMesh chunk):(
+    list vertex_groups = []
+    list index_groups = []
+    for surface in surfaces:(append(vertex_groups,[]); append(index_groups,[]))
+    chunk.faces = 0
+    for z in range(chunk.z*CHUNK,(chunk.z+1)*CHUNK):(
+        for x in range(chunk.x*CHUNK,(chunk.x+1)*CHUNK):(
+            for y in range(HEIGHT):(
+                int block = get(world,x,y,z)
+                if block != 0:(
+                    vec3 cell = vec3(x,y,z)
+                    for face in range(6):(
+                        vec3 normal = normals[face]
+                        vec3 next = cell+normal
+                        if not solid(world,int(next.x),int(next.y),int(next.z)):(
+                            int surface = surface_index(block,face)
+                            list vertices = vertex_groups[surface]
+                            list indices = index_groups[surface]
+                            vec3 u = axes_u[face]
+                            vec3 v = axes_v[face]
+                            vec3 origin = cell+origins[face]
+                            int first = len(vertices)
+                            for corner in range(4):(
+                                int cu = corners_u[corner]; int cv = corners_v[corner]
+                                float ao = ambient(world,cell,normal,u,v,cu,cv)
+                                \# Alpha 254 tags opaque emissive lanterns; other faces use 255. #\
+                                color shaded = (int(255*ao),int(255*ao),int(255*ao),255-int(block==8))
+                                append(vertices,vertex(origin+u*cu+v*cv,vec2(cu,1-cv),normal,shaded))
+                            )
+                            append(indices,first); append(indices,first+1); append(indices,first+2)
+                            append(indices,first); append(indices,first+2); append(indices,first+3)
+                            chunk.faces += 1
+                        )
+                    )
+                )
+            )
+        )
+    )
+    chunk.geometry = []
+    for i in range(len(surfaces)):(
+        if len(vertex_groups[i]) > 0:(
+            mesh geometry = create_mesh(vertex_groups[i],index_groups[i])
+            geometry.material = surfaces[i]
+            geometry.name = texture_names[i]
+            append(chunk.geometry,geometry)
+        )
+    )
+    chunk.rebuilds += 1
+    world.dirty[chunk.z*CHUNKS+chunk.x] = false
+)
+
+def build(World world) -> list:(
+    list chunks = []
+    for z in range(CHUNKS):(
+        for x in range(CHUNKS):(
+            ChunkMesh chunk = ChunkMesh(x,z)
+            rebuild(world,chunk)
+            append(chunks,chunk)
+        )
+    )
+    return chunks
+)
+
+def refresh(World world, list chunks):(
+    for chunk in chunks:(
+        if world.dirty[chunk.z*CHUNKS+chunk.x]:(rebuild(world,chunk))
+    )
+)
+
+def draw_chunks(list chunks):(
+    for chunk in chunks:(
+        for geometry in chunk.geometry:(draw_mesh(geometry))
+    )
+)

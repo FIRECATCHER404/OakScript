@@ -1,0 +1,454 @@
+from "world.oak" import Body;Joint;World;make_body;wake_connected
+from "geometry.oak" import Contact;contact;support;safe_normal;UP;contact_points
+from "motion.oak" import apply_motion
+float METERS_PER_FOOT=0.3048
+float GRAVITY=9.80665/METERS_PER_FOOT
+float STEP=1.0/60.0
+float RESTITUTION_THRESHOLD=1.0/METERS_PER_FOOT
+Body ground=make_body(1,vec3(1,1,1),vec3(0,0,0),vec3(0,0,0),0.0,1.0)
+ground.restitution=0.0
+list joint_axes=[vec3(1,0,0),UP,vec3(0,0,1)]
+type Manifold:(Body a;Body b;vec3 normal;float depth;vec3 anchor_a;vec3 anchor_b)
+World motion_world=World()
+bool checking_motion=false
+
+def limit(vec3 value,float maximum)->vec3:(
+    float squared=dot(value,value)
+    if squared>maximum*maximum:(return value*(maximum/sqrt(squared)))
+    return value
+)
+
+\ Projected silhouette in square meters, including the box/capsule orientation.
+def drag_area(Body body,vec3 direction)->float:(
+    float area=3.141592653589793*body.size.x*body.size.x
+    if body.shape==1:(
+        vec3 local=conjugate(body.rotation)*direction;vec3 h=body.size
+        area=4.0*(h.y*h.z*abs(local.x)+h.x*h.z*abs(local.y)+h.x*h.y*abs(local.z))
+    )
+    if body.shape==2:(
+        vec3 local=conjugate(body.rotation)*direction
+        area+=4.0*body.size.x*body.size.y*sqrt(max(0.0,1.0-local.y*local.y))
+    )
+    return area*METERS_PER_FOOT*METERS_PER_FOOT
+)
+
+def apply_air_drag(Body body,float density,float dt):(
+    if body.inverse_mass==0 or body.sleeping or density<=0:(return)
+    float speed=length(body.velocity)
+    if speed>0.000001 and body.drag_coefficient>0:(
+        float coefficient=0.5*density*body.drag_coefficient*drag_area(body,body.velocity/speed)*METERS_PER_FOOT*body.inverse_mass
+        \ Stable quadratic damping: cannot reverse velocity even for large dt.
+        body.velocity/=1.0+coefficient*speed*dt
+    )
+    body.angular*=2.718281828459045**(-max(0.0,body.angular_drag)*(density/1.225)*dt)
+)
+def inertia(Body b,vec3 value)->vec3:(
+    if b.inverse_mass==0:(return vec3(0,0,0))
+    if b.shape==0:(return value*b.inverse_inertia.x)
+    vec3 local=conjugate(b.rotation)*value
+    return b.rotation*vec3(local.x*b.inverse_inertia.x,local.y*b.inverse_inertia.y,local.z*b.inverse_inertia.z)
+)
+def turn(Body b,vec3 angle)->vec3:(
+    if b.inverse_mass==0:(return vec3(0,0,0))
+    float squared=dot(angle,angle)
+    if squared<0.00000000000000000001:(return vec3(0,0,0))
+    if squared>0.0324:(angle*=0.18/sqrt(squared))
+    if checking_motion:(return apply_motion(motion_world,b,vec3(0,0,0),angle,true)[1])
+    quat delta=quat(angle.x,angle.y,angle.z,0)*b.rotation
+    b.rotation=quat_normalize(quat(b.rotation.x+delta.x*0.5,b.rotation.y+delta.y*0.5,b.rotation.z+delta.z*0.5,b.rotation.w+delta.w*0.5))
+    return angle
+)
+def mass_at(Body a,Body b,vec3 ra,vec3 rb,vec3 axis)->float:(
+    vec3 ga=cross(ra,axis)
+    float weight=a.inverse_mass+b.inverse_mass+dot(ga,inertia(a,ga))
+    if b.inverse_mass>0:(vec3 gb=cross(rb,axis);weight+=dot(gb,inertia(b,gb)))
+    return weight
+)
+def translate(Body b,vec3 delta)->vec3:(
+    if b.inverse_mass==0:(return vec3(0,0,0))
+    if checking_motion:(delta=apply_motion(motion_world,b,delta,vec3(0,0,0),true)[0])
+    else:(b.position+=delta)
+    if b.sleeping and dot(delta,delta)>0.0000003:(b.sleeping=false;b.quiet=0.0)
+    return delta
+)
+
+def transform(Body b,vec3 delta,vec3 angle)->tuple:(
+    if b.inverse_mass==0.0:(return (vec3(0,0,0),vec3(0,0,0)))
+    tuple accepted=(vec3(0,0,0),vec3(0,0,0))
+    if checking_motion:(accepted=apply_motion(motion_world,b,delta,angle,true))
+    else:(accepted=(translate(b,delta),turn(b,angle)))
+    if b.sleeping and dot(accepted[0],accepted[0])>0.0000003:(b.sleeping=false;b.quiet=0.0)
+    return accepted
+)
+def solve_contact(Body a,Body b,Contact hit):(
+    if not hit.hit or hit.depth<=0.0001:(return)
+    vec3 ra=hit.point-a.position;vec3 rb=hit.point-b.position
+    vec3 ga=cross(ra,hit.normal);vec3 gb=cross(rb,hit.normal)
+    vec3 ia=inertia(a,ga);vec3 ib=inertia(b,gb)
+    float weight=a.inverse_mass+b.inverse_mass+dot(ga,ia)+dot(gb,ib)
+    if weight<0.000001:(return)
+    float correction=min(hit.depth-0.0001,0.12)*0.72/weight
+    vec3 move_a=hit.normal*(correction*a.inverse_mass);vec3 move_b=-hit.normal*(correction*b.inverse_mass)
+    tuple accepted_a=transform(a,move_a,ia*correction);tuple accepted_b=transform(b,move_b,-ib*correction)
+    a.correction+=accepted_a[0];b.correction+=accepted_b[0]
+    a.angular_correction+=accepted_a[1];b.angular_correction+=accepted_b[1]
+)
+def ground_contacts(Body b)->list:(
+    list hits=[]
+    if b.position.y>b.bound+0.003:(return hits)
+    if b.shape==1:(
+        for x in [-1,1]:(for y in [-1,1]:(for z in [-1,1]:(
+            vec3 point=b.position+b.rotation*vec3(b.size.x*x,b.size.y*y,b.size.z*z)
+            if point.y<0.003:(append(hits,Contact(true,UP,-point.y,point)))
+        )))
+    )
+    else:(
+        if b.shape==2:(
+            \ Both cap bottoms support a capsule lying along the floor. A
+            \ single arbitrarily chosen end creates a false rocking torque.
+            vec3 offset=b.rotation*vec3(0,b.size.y,0)
+            for side in [-1,1]:(
+                vec3 point=b.position+offset*side-UP*b.size.x
+                if point.y<0.003:(append(hits,Contact(true,UP,-point.y,point)))
+            )
+        )
+        else:(vec3 point=support(b,-UP);if point.y<0.003:(append(hits,Contact(true,UP,-point.y,point))))
+    )
+    return hits
+)
+def solve_joint(Joint j,float dt):(
+    float alpha=0.0000003/(dt*dt)
+    float mass=j.a.inverse_mass+j.b.inverse_mass
+    if mass<=0:(return)
+    vec3 ra=j.a.rotation*j.anchor_a;vec3 rb=j.b.rotation*j.anchor_b
+    vec3 error=j.a.position+ra-j.b.position-rb
+    vec3 ax=inertia(j.a,cross(ra,joint_axes[0]));vec3 bx=inertia(j.b,cross(rb,joint_axes[0]))
+    vec3 ay=inertia(j.a,cross(ra,joint_axes[1]));vec3 by=inertia(j.b,cross(rb,joint_axes[1]))
+    vec3 az=inertia(j.a,cross(ra,joint_axes[2]));vec3 bz=inertia(j.b,cross(rb,joint_axes[2]))
+    vec3 x=joint_axes[0]*(mass+alpha)+cross(ax,ra)+cross(bx,rb)
+    vec3 y=joint_axes[1]*(mass+alpha)+cross(ay,ra)+cross(by,rb)
+    vec3 z=joint_axes[2]*(mass+alpha)+cross(az,ra)+cross(bz,rb)
+    vec3 yz=cross(y,z);float determinant=dot(x,yz)
+    if determinant>0.000000001:(
+        vec3 rhs=-error-j.multiplier*alpha
+        vec3 impulse=vec3(dot(rhs,yz),dot(x,cross(rhs,z)),dot(x,cross(y,rhs)))/determinant
+        j.multiplier+=impulse
+        transform(j.a,impulse*j.a.inverse_mass,ax*impulse.x+ay*impulse.y+az*impulse.z)
+        transform(j.b,-impulse*j.b.inverse_mass,-bx*impulse.x-by*impulse.y-bz*impulse.z)
+    )
+    vec3 a=j.a.rotation*UP;vec3 b=j.b.rotation*UP
+    float alignment=dot(a,b)
+    if alignment<j.bend:(
+        vec3 axis=safe_normal(cross(a,b),vec3(1,0,0))
+        float total=j.a.inverse_mass+j.b.inverse_mass
+        if total>0:(
+            float error=min(0.12,(j.bend-alignment)*0.35)
+            turn(j.a,axis*(error*j.a.inverse_mass/total));turn(j.b,-axis*(error*j.b.inverse_mass/total))
+        )
+    )
+)
+def pairs(World world)->list:(
+    list result=[]
+    for i in range(len(world.bodies)):(
+        Body a=world.bodies[i]
+        for j in range(i+1,len(world.bodies)):(
+            Body b=world.bodies[j]
+            if (a.inverse_mass==0 or a.sleeping) and (b.inverse_mass==0 or b.sleeping):(continue)
+            float bound=a.bound+b.bound+0.16
+            vec3 delta=a.position-b.position
+            if abs(delta.x)>bound or abs(delta.y)>bound or abs(delta.z)>bound:(continue)
+            if (min(a.id,b.id),max(a.id,b.id)) in world.linked:(continue)
+            append(result,(a,b))
+        )
+    )
+    return result
+)
+\ The slipperier surface sets the coefficient, regardless of contact order.
+\ Full friction is a coefficient of one, not a constraint that freezes motion.
+def contact_friction(Body a,Body b)->float:(
+    return clamp(min(a.friction,b.friction),0.0,1.0)
+)
+
+def velocity_contact(Body a,Body b,Contact hit,float dt):(
+    if not hit.hit:(return)
+    vec3 ra=hit.point-a.position;vec3 rb=hit.point-b.position
+    vec3 relative=a.velocity+cross(a.angular,ra)-b.velocity-cross(b.angular,rb)
+    float incoming=dot(relative,hit.normal)
+    float weight=mass_at(a,b,ra,rb,hit.normal)
+    if weight<0.000001:(return)
+    float normal_impulse=max(0.0,-incoming)/weight
+    if normal_impulse>0:(
+        a.velocity+=hit.normal*(normal_impulse*a.inverse_mass);b.velocity-=hit.normal*(normal_impulse*b.inverse_mass)
+        a.angular+=inertia(a,cross(ra,hit.normal))*normal_impulse;b.angular-=inertia(b,cross(rb,hit.normal))*normal_impulse
+    )
+    vec3 tangent=relative-hit.normal*incoming
+    float speed=length(tangent)
+    if speed>0.0001:(
+        vec3 axis=tangent/speed
+        float resistance=mass_at(a,b,ra,rb,axis)
+        float impulse=min(speed/max(resistance,0.000001),contact_friction(a,b)*(normal_impulse+GRAVITY*dt/max(a.inverse_mass+b.inverse_mass,0.000001)))
+        a.velocity-=axis*(impulse*a.inverse_mass);b.velocity+=axis*(impulse*b.inverse_mass)
+        a.angular-=inertia(a,cross(ra,axis))*impulse;b.angular+=inertia(b,cross(rb,axis))*impulse
+    )
+)
+def manifolds(list candidates)->list:(
+    list result=[]
+    for pair in candidates:(
+        Contact hit=contact(pair[0],pair[1])
+        if hit.hit:(append(result,Manifold(pair[0],pair[1],hit.normal,hit.depth,conjugate(pair[0].rotation)*(hit.point-pair[0].position),conjugate(pair[1].rotation)*(hit.point-pair[1].position))))
+    )
+    return result
+)
+
+def wake_group(World world,int group):(
+    for body in world.bodies:(
+        if body.group==group and body.inverse_mass>0:(body.sleeping=false;body.quiet=0.0)
+    )
+)
+
+type VelocityConstraint:(
+    Body a;Body b;vec3 normal;vec3 ra;vec3 rb;vec3 ga;vec3 gb;vec3 ia;vec3 ib
+    vec3 anchor_a;vec3 anchor_b;float weight;float dt
+    float target=0.0;float impulse=0.0;vec3 tangent=(0,0,0)
+)
+
+def impulse_at(Body a,Body b,vec3 ra,vec3 rb,vec3 impulse):(
+    a.velocity+=impulse*a.inverse_mass;b.velocity-=impulse*b.inverse_mass
+    a.angular+=inertia(a,cross(ra,impulse));b.angular-=inertia(b,cross(rb,impulse))
+)
+
+def normal_velocity(VelocityConstraint c)->float:(
+    return dot(c.a.velocity-c.b.velocity,c.normal)+dot(c.a.angular,c.ga)-dot(c.b.angular,c.gb)
+)
+
+def constraint(Body a,Body b,Contact hit,tuple key,dict cache,bool warm,float dt)->VelocityConstraint:(
+    vec3 ra=hit.point-a.position;vec3 rb=hit.point-b.position
+    vec3 ga=cross(ra,hit.normal);vec3 gb=cross(rb,hit.normal)
+    vec3 ia=inertia(a,ga);vec3 ib=inertia(b,gb)
+    VelocityConstraint c=VelocityConstraint(a,b,hit.normal,ra,rb,ga,gb,ia,ib,conjugate(a.rotation)*ra,conjugate(b.rotation)*rb,a.inverse_mass+b.inverse_mass+dot(ga,ia)+dot(gb,ib),dt)
+    float incoming=normal_velocity(c)
+    if incoming< -RESTITUTION_THRESHOLD:(c.target=-incoming*max(a.restitution,b.restitution))
+    if key in cache:(
+        VelocityConstraint old=cache[key]
+        if dot(old.normal,c.normal)>0.99 and length(old.anchor_a-c.anchor_a)<0.03 and length(old.anchor_b-c.anchor_b)<0.03:(
+            c.impulse=old.impulse*dt/old.dt;c.tangent=(old.tangent-c.normal*dot(old.tangent,c.normal))*(dt/old.dt)
+            if not warm:(c.target=old.target)
+        )
+    )
+    return c
+)
+
+\ Regular, centered face support has no torque. Solve that balanced patch
+\ as one pressure resultant instead of introducing corner-order rocking.
+def balanced_patch(Body a,Body b,list hits)->list:(
+    if len(hits)<3 or dot(a.angular,a.angular)>0.00000001 or dot(b.angular,b.angular)>0.00000001:(return hits)
+    vec3 n=hits[0].normal;vec3 relative=a.velocity-b.velocity
+    if length(relative-n*dot(relative,n))>0.0001:(return hits)
+    vec3 point=(0,0,0);float depth=0.0
+    for hit in hits:(point+=hit.point;depth+=hit.depth)
+    point/=len(hits);depth/=len(hits)
+    if a.inverse_mass>0:(vec3 arm=point-a.position;if length(arm-n*dot(arm,n))>0.00001:(return hits))
+    if b.inverse_mass>0:(vec3 arm=point-b.position;if length(arm-n*dot(arm,n))>0.00001:(return hits))
+    return [Contact(true,n,depth,point)]
+)
+
+def velocity_constraints(World world,list candidates,dict cache,bool warm,float dt)->dict:(
+    dict result={}
+    for pair in candidates:(
+        list points=balanced_patch(pair[0],pair[1],contact_points(pair[0],pair[1],contact(pair[0],pair[1])))
+        for i,hit in enumerate(points):(
+            tuple key=(pair[0].id,pair[1].id,i)
+            result[key]=constraint(pair[0],pair[1],hit,key,cache,warm,dt)
+        )
+    )
+    for body in world.bodies:(
+        if body.inverse_mass==0 or body.sleeping:(continue)
+        for i,hit in enumerate(balanced_patch(body,ground,ground_contacts(body))):(
+            tuple key=(body.id,-1,i)
+            result[key]=constraint(body,ground,hit,key,cache,warm,dt)
+        )
+    )
+    if warm:(for c in result.values():(impulse_at(c.a,c.b,c.ra,c.rb,c.normal*c.impulse+c.tangent)))
+    return result
+)
+
+type VelocityJoint:(Body a;Body b;vec3 ra;vec3 rb;mat3 effective;mat3 angular_a;mat3 angular_b)
+
+def velocity_joints(World world)->list:(
+    list result=[]
+    for j in world.joints:(
+        if (j.a.inverse_mass==0 or j.a.sleeping) and (j.b.inverse_mass==0 or j.b.sleeping):(continue)
+        float mass=j.a.inverse_mass+j.b.inverse_mass
+        vec3 ra=j.a.rotation*j.anchor_a;vec3 rb=j.b.rotation*j.anchor_b
+        vec3 ax=inertia(j.a,cross(ra,joint_axes[0]));vec3 bx=inertia(j.b,cross(rb,joint_axes[0]))
+        vec3 ay=inertia(j.a,cross(ra,joint_axes[1]));vec3 by=inertia(j.b,cross(rb,joint_axes[1]))
+        vec3 az=inertia(j.a,cross(ra,joint_axes[2]));vec3 bz=inertia(j.b,cross(rb,joint_axes[2]))
+        vec3 x=joint_axes[0]*mass+cross(ax,ra)+cross(bx,rb)
+        vec3 y=joint_axes[1]*mass+cross(ay,ra)+cross(by,rb)
+        vec3 z=joint_axes[2]*mass+cross(az,ra)+cross(bz,rb)
+        vec3 yz=cross(y,z);float determinant=dot(x,yz)
+        if determinant>0.000000001:(
+            vec3 row0=yz/determinant;vec3 row1=cross(z,x)/determinant;vec3 row2=cross(x,y)/determinant
+            mat3 effective=((row0.x,row0.y,row0.z),(row1.x,row1.y,row1.z),(row2.x,row2.y,row2.z))
+            mat3 angular_a=((ax.x,ay.x,az.x),(ax.y,ay.y,az.y),(ax.z,ay.z,az.z))
+            mat3 angular_b=((bx.x,by.x,bz.x),(bx.y,by.y,bz.y),(bx.z,by.z,bz.z))
+            append(result,VelocityJoint(j.a,j.b,ra,rb,effective,angular_a,angular_b))
+        )
+    )
+    return result
+)
+
+def solve_velocity_joint(VelocityJoint j)->float:(
+    vec3 rhs=j.b.velocity+cross(j.b.angular,j.rb)-j.a.velocity-cross(j.a.angular,j.ra)
+    if dot(rhs,rhs)<0.000000000001:(return 0.0)
+    vec3 impulse=j.effective*rhs
+    j.a.velocity+=impulse*j.a.inverse_mass;j.b.velocity-=impulse*j.b.inverse_mass
+    j.a.angular+=j.angular_a*impulse
+    j.b.angular-=j.angular_b*impulse
+    return length(rhs)
+)
+
+def solve_velocities(dict constraints,list joints=[]):(
+    list contacts=list(constraints.values())
+    if len(contacts)==0 and len(joints)==0:(return)
+    int iteration=0
+    while iteration<24:(
+        float error=0.0
+        list ordered=contacts
+        if iteration%2==1:(ordered=contacts[::-1])
+        for c in ordered:(
+            if c.weight<=0.000001:(continue)
+            float next=max(0.0,c.impulse+(c.target-normal_velocity(c))/c.weight)
+            float change=next-c.impulse;c.impulse=next;error=max(error,abs(change)*c.weight)
+            if abs(change)>0.000000001:(
+                c.a.velocity+=c.normal*(change*c.a.inverse_mass);c.b.velocity-=c.normal*(change*c.b.inverse_mass)
+                c.a.angular+=c.ia*change;c.b.angular-=c.ib*change
+            )
+            if iteration>=20:(
+                vec3 relative=c.a.velocity+cross(c.a.angular,c.ra)-c.b.velocity-cross(c.b.angular,c.rb)
+                vec3 sliding=relative-c.normal*dot(relative,c.normal)
+                float speed=length(sliding);vec3 tangent=c.tangent;float resistance=1.0
+                if speed>0.0000001:(resistance=max(mass_at(c.a,c.b,c.ra,c.rb,sliding/speed),0.000001);tangent-=sliding/resistance)
+                tangent=limit(tangent,contact_friction(c.a,c.b)*c.impulse)
+                vec3 difference=tangent-c.tangent;c.tangent=tangent;error=max(error,length(difference)*resistance)
+                if dot(difference,difference)>0.000000000001:(impulse_at(c.a,c.b,c.ra,c.rb,difference))
+            )
+        )
+        for joint in joints:(error=max(error,solve_velocity_joint(joint)))
+        if iteration>=21 and error<0.000001:(break)
+        \ Once support and joint velocities have converged, repeating the
+        \ same friction-free solve has no effect. Retain the four final
+        \ friction/coupled-joint passes and the original maximum iteration count.
+        if iteration<19 and error<0.000001:(iteration=19)
+        iteration+=1
+    )
+)
+
+def island_root(dict parents,int group)->int:(
+    int root=group
+    while parents[root]!=root:(root=parents[root])
+    while parents[group]!=group:(int next=parents[group];parents[group]=root;group=next)
+    return root
+)
+
+def integrated_step(World world,float dt)->bool:(
+    assert(dt>0.0 and dt<=0.05,"Physics steps must be positive and at most 0.05 seconds")
+    if not any([body.inverse_mass>0 and not body.sleeping for body in world.bodies]):(return false)
+    set awake_groups=set([body.group for body in world.bodies if body.inverse_mass>0 and not body.sleeping])
+    for body in world.bodies:(
+        if body.sleeping and body.group in awake_groups:(body.sleeping=false;body.quiet=0.0)
+        body.previous=body.position;body.previous_rotation=body.rotation;body.previous_velocity=body.velocity
+        body.correction=(0,0,0);body.angular_correction=(0,0,0)
+        if body.inverse_mass==0 or body.sleeping:(continue)
+        body.velocity.y-=GRAVITY*dt;apply_air_drag(body,world.air_density,dt)
+    )
+    list candidates=pairs(world)
+    list contacts=manifolds(candidates)
+    bool woke=false
+    for manifold in contacts:(
+        if manifold.a.sleeping and manifold.b.inverse_mass>0 and not manifold.b.sleeping:(wake_connected(world,manifold.a.group);woke=true)
+        if manifold.b.sleeping and manifold.a.inverse_mass>0 and not manifold.a.sleeping:(wake_connected(world,manifold.b.group);woke=true)
+    )
+    if woke:(candidates=pairs(world);contacts=manifolds(candidates))
+    dict velocity=velocity_constraints(world,candidates,world.contact_cache,true,dt)
+    solve_velocities(velocity,velocity_joints(world))
+    for body in world.bodies:(
+        if body.inverse_mass>0 and not body.sleeping:(
+            \ Trapezoidal integration is exact for constant acceleration in a
+            \ vacuum, and support impulses cancel gravity before integration.
+            apply_motion(world,body,(body.previous_velocity+body.velocity)*(dt*0.5),body.angular*dt)
+        )
+        body.predicted=body.position;body.predicted_rotation=body.rotation
+    )
+    candidates=pairs(world);contacts=manifolds(candidates)
+    for manifold in contacts:(
+        if manifold.a.sleeping and manifold.b.inverse_mass>0 and not manifold.b.sleeping:(wake_connected(world,manifold.a.group))
+        if manifold.b.sleeping and manifold.a.inverse_mass>0 and not manifold.a.sleeping:(wake_connected(world,manifold.b.group))
+    )
+    for joint in world.joints:(joint.multiplier=(0,0,0))
+    list active_joints=[joint for joint in world.joints if not ((joint.a.inverse_mass==0 or joint.a.sleeping) and (joint.b.inverse_mass==0 or joint.b.sleeping))]
+    for iteration in range(5):(
+        for joint in active_joints:(solve_joint(joint,dt))
+        if iteration==3:(contacts=manifolds(candidates))
+        for manifold in contacts:(
+            vec3 pa=manifold.a.position+manifold.a.rotation*manifold.anchor_a
+            vec3 pb=manifold.b.position+manifold.b.rotation*manifold.anchor_b
+            solve_contact(manifold.a,manifold.b,Contact(true,manifold.normal,manifold.depth-dot(pa-pb,manifold.normal),(pa+pb)*0.5))
+        )
+        for body in world.bodies:(if body.inverse_mass>0 and not body.sleeping:(for hit in ground_contacts(body):(solve_contact(body,ground,hit))))
+    )
+    for body in world.bodies:(
+        if body.inverse_mass==0 or body.sleeping:(continue)
+        if body.position.y<=body.bound+0.003:(
+            float lowest=support(body,-UP).y
+            if lowest<0.0001:(float correction=0.0001-lowest;body.correction+=translate(body,vec3(0,correction,0)))
+        )
+        \ Contacts correct positions without generating kinetic energy.
+        \ Joint constraints alter velocity and are also enforced alongside
+        \ contacts in the velocity solve.
+        vec3 correction=body.correction;vec3 angular_correction=body.angular_correction
+        body.velocity+=(body.position-body.predicted-correction)/dt
+        quat difference=body.rotation*conjugate(body.predicted_rotation)
+        float sign=2*int(difference.w>=0)-1
+        body.angular=limit(body.angular+(vec3(difference.x,difference.y,difference.z)*(sign*2.0)-angular_correction)/dt,12.0)
+    )
+    candidates=pairs(world)
+    dict final_contacts=velocity_constraints(world,candidates,velocity,false,dt)
+    solve_velocities(final_contacts,velocity_joints(world))
+    list connected=[pair for pair in world.contacts if pair[0].active and pair[1].active and pair[0].sleeping and pair[1].sleeping]
+    for c in final_contacts.values():(if c.b.id>=0:(append(connected,(c.a,c.b))))
+    world.contacts=connected;world.contact_cache=final_contacts
+    dict parents={body.group:body.group for body in world.bodies if body.inverse_mass>0}
+    for pair in connected:(
+        if pair[0].inverse_mass>0 and pair[1].inverse_mass>0:(
+            int a=island_root(parents,pair[0].group);int b=island_root(parents,pair[1].group)
+            if a!=b:(parents[b]=a)
+        )
+    )
+    dict quiet={};bool changed=false
+    for body in world.bodies:(
+        if body.inverse_mass==0:(continue)
+        if not body.sleeping:(
+            if dot(body.velocity,body.velocity)<0.008 and dot(body.angular,body.angular)*body.bound*body.bound<0.012:(body.quiet+=dt)
+            else:(body.quiet=0.0)
+            quat difference=body.rotation*conjugate(body.previous_rotation)
+            if dot(body.position-body.previous,body.position-body.previous)>0.00000001 or abs(difference.w)<0.9999999:(changed=true)
+        )
+        int root=island_root(parents,body.group)
+        quiet[root]=quiet.get(root,true) and body.quiet>0.75
+    )
+    for body in world.bodies:(
+        if body.inverse_mass>0 and quiet.get(island_root(parents,body.group),false):(
+            body.sleeping=true;body.velocity=(0,0,0);body.angular=(0,0,0)
+        )
+    )
+    if changed:(world.revision+=1)
+    return changed
+)
+
+def step(World world,float dt=STEP)->bool:(
+    World previous=motion_world;bool was_checking=checking_motion
+    motion_world=world;checking_motion=true
+    try:(return integrated_step(world,dt))
+    finally:(motion_world=previous;checking_motion=was_checking)
+)

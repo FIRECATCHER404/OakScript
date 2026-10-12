@@ -1,0 +1,175 @@
+from "game.oak" import Game
+from "world.oak" import block_names
+from "physics.oak" import eye_position
+from "meshing.oak" import draw_chunks
+from "textures.oak" import icon
+
+font face = load_font("../assets/AtkinsonHyperlegible-Regular.ttf")
+shader block_shader = load_shader("../assets/shaders/blocks")
+shader sky_shader = load_shader("../assets/shaders/sky")
+texture sky_seed = load_texture("../assets/sky.png")
+camera view = create_camera()
+view.fov = 75.0
+view.near = 0.04
+view.far = 180.0
+
+color cream = (242,241,221)
+color muted = (185,201,193)
+color ink = (18,33,35)
+color gold = (236,196,115)
+
+def rect(float x, float y, float width, float height, color tint):(
+    fill_poly([(x,y),(x+width,y),(x+width,y+height),(x,y+height)],tint)
+)
+
+def label(string text, float x, float y, float size, color tint):(
+    draw_text2(text,x,y,tint,face,size)
+)
+
+def center(string text, float x, float y, float size, color tint):(
+    vec2 measured = measure_text(text,face,size)
+    label(text,x-measured.x*0.5,y,size,tint)
+)
+
+def badge(string text, float x, float y, float size, color tint):(
+    vec2 measured = measure_text(text,face,size)
+    rect(x-measured.x*0.5-9,y-3,measured.x+18,measured.y+6,(18,33,35,190))
+    center(text,x,y,size,tint)
+)
+
+def dim(color tint, float brightness) -> color:(
+    return color(int(tint.r*brightness),int(tint.g*brightness),int(tint.b*brightness))
+)
+
+def cube_icon(float x, float y, float size, color tint):(
+    fill_poly([(x,y-size*0.54),(x+size*0.48,y-size*0.27),(x,y),(x-size*0.48,y-size*0.27)],tint)
+    fill_poly([(x-size*0.48,y-size*0.27),(x,y),(x,y+size*0.54),(x-size*0.48,y+size*0.27)],dim(tint,0.68))
+    fill_poly([(x,y),(x+size*0.48,y-size*0.27),(x+size*0.48,y+size*0.27),(x,y+size*0.54)],dim(tint,0.84))
+)
+
+def beam(list vertices, list indices, vec3 low, vec3 high):(
+    list points = [vec3(low.x,low.y,low.z),vec3(high.x,low.y,low.z),vec3(high.x,high.y,low.z),vec3(low.x,high.y,low.z),vec3(low.x,low.y,high.z),vec3(high.x,low.y,high.z),vec3(high.x,high.y,high.z),vec3(low.x,high.y,high.z)]
+    int first = len(vertices)
+    for point in points:(append(vertices,vertex(point,(0,0),(0,1,0),(246,239,183))))
+    for i in [0,2,1,0,3,2,4,5,6,4,6,7,0,1,5,0,5,4,3,7,6,3,6,2,0,4,7,0,7,3,1,2,6,1,6,5]:(append(indices,first+i))
+)
+
+def make_outline() -> mesh:(
+    list vertices = []
+    list indices = []
+    float b = 0.014
+    for a in [0,1]:(
+        for c in [0,1]:(
+            beam(vertices,indices,vec3(-b,a-b,c-b),vec3(1+b,a+b,c+b))
+            beam(vertices,indices,vec3(a-b,-b,c-b),vec3(a+b,1+b,c+b))
+            beam(vertices,indices,vec3(a-b,c-b,-b),vec3(a+b,c+b,1+b))
+        )
+    )
+    return create_mesh(vertices,indices)
+)
+
+mesh outline = make_outline()
+
+def sky(float width, float height):(
+    clear((180,211,226))
+    use_shader(sky_shader)
+    texture_blit(sky_seed,0,0,width,height)
+    reset_shader()
+)
+
+def hud(Game game, float width, float height, float scale):(
+    rect(24,22,188,57,(18,33,35,215))
+    cube_icon(47,49,25,(157,186,118))
+    label("OAK BLOCKS",68,32,22,cream)
+    string mode = "WALKING"
+    color mode_color = muted
+    if game.player.crouched:(mode = "CROUCHING"; mode_color = gold)
+    if game.player.flying:(mode = "FLYING"; mode_color = (156,216,235))
+    rect(width-180,22,156,57,(18,33,35,215))
+    center(mode,width-102,33,20,mode_color)
+    float cx = width*0.5
+    float cy = height*0.5
+    rect(cx-9,cy-2,18,4,(18,33,35,170))
+    rect(cx-2,cy-9,4,18,(18,33,35,170))
+    rect(cx-8,cy-1,16,2,cream)
+    rect(cx-1,cy-8,2,16,cream)
+    if game.target.found:(
+        badge(block_names[game.target.block]+"  /  "+string(round(game.target.distance*10)/10.0)+"m",cx,cy+21,16,cream)
+    )
+    float slot = 62*scale
+    float left = cx-slot*4
+    float bottom = height-82*scale
+    rect(left-8*scale,bottom-7*scale,slot*8+16*scale,72*scale,(18,33,35,225))
+    for i in range(1,9):(
+        float x = left+(i-1)*slot
+        if i == game.selected:(
+            rect(x,bottom,slot-4*scale,58*scale,gold)
+            rect(x+2*scale,bottom+2*scale,slot-8*scale,54*scale,(44,60,52))
+        )
+        else:(rect(x,bottom,slot-4*scale,58*scale,(52,67,62,230)))
+        texture_blit(icon(i),x+11*scale,bottom+15*scale,36*scale,36*scale)
+        label(string(i),x+4*scale,bottom+3*scale,12*scale,cream)
+    )
+    badge(block_names[game.selected],cx,bottom-36*scale,22*scale,cream)
+    string info = "WASD move   SPACE jump   SHIFT crouch   F fly"
+    if game.player.flying:(info = "WASD fly   SPACE up   SHIFT down   F walk")
+    badge(info,cx,bottom-61*scale,15*scale,cream)
+    rect(18,height-33,172,24,(18,33,35,190))
+    rect(width-265,height-33,250,24,(18,33,35,190))
+    label(string(int(round(game.fps)))+" FPS  |  "+string(game.world.edits)+" edits",24,height-29,14,cream)
+    label("LMB break  /  RMB place  /  ESC pause",width-258,height-29,14,cream)
+    if game.notice_timer > 0:(
+        badge(game.notice,cx,95,19,gold)
+    )
+)
+
+def menu(Game game, float width, float height):(
+    rect(0,0,width,height,(9,21,25,130))
+    float panel_width = min(780.0,width-48)
+    float left = (width-panel_width)*0.5
+    float top = max(32.0,(height-504)*0.5)
+    rect(left+5,top+8,panel_width,496,(8,20,22,100))
+    rect(left,top,panel_width,496,(18,33,35,245))
+    rect(left,top,5,496,gold)
+    cube_icon(left+62,top+67,58,(145,185,110))
+    string title = "Oak Blocks"
+    string subtitle = "A little world. Build something."
+    if game.started:(title = "Take a breath"; subtitle = "Your world is paused.")
+    label(title,left+110,top+31,49,cream)
+    label(subtitle,left+110,top+92,21,muted)
+    rect(left+36,top+146,panel_width-72,1,(78,96,83))
+    label("WASD",left+40,top+169,23,gold)
+    label("Walk / fly",left+205,top+169,23,cream)
+    label("SPACE / SHIFT",left+40,top+212,20,gold)
+    label("Jump / crouch  (up / down in flight)",left+205,top+212,21,cream)
+    label("F  /  R",left+40,top+255,22,gold)
+    label("Toggle flight / return to the clearing",left+205,top+255,21,cream)
+    label("MOUSE",left+40,top+298,22,gold)
+    label("Look  /  left: break  /  right: place",left+205,top+298,21,cream)
+    label("1 - 8 / WHEEL",left+40,top+341,20,gold)
+    label("Choose a block",left+205,top+341,21,cream)
+    center("ENTER  to play",width*0.5,top+402,30,gold)
+    center("ESC  pause / release mouse     Q  quit while paused",width*0.5,top+452,17,muted)
+)
+
+def render(Game game, list chunks):(
+    vec2 dimensions = window_size()
+    float width = dimensions.x
+    float height = dimensions.y
+    float ui_scale = min(1.0,width/960.0,height/640.0)
+    reset_shader()
+    sky(width,height)
+    view.position = eye_position(game.player)
+    view.rotation = (game.player.pitch,game.player.yaw,0)
+    set_camera(view)
+    blend.mode = <opaque>
+    depth.mode = <less>
+    cull.mode = <none>
+    use_shader(block_shader)
+    draw_chunks(chunks)
+    reset_shader()
+    if game.target.found and game.active:(draw_mesh(outline,vec3(game.target.x,game.target.y,game.target.z)))
+    blend.mode = <alpha>
+    hud(game,width,height,ui_scale)
+    if not game.active:(menu(game,width,height))
+)

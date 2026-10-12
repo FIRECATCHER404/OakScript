@@ -1,0 +1,108 @@
+from "world.oak" import World;names;prototypes;add;delete;expire;MAX_BODIES;random_color
+from "geometry.oak" import Hit;cast;placement;clear
+from "physics.oak" import step;STEP
+type Controls:(float forward=0.0;float strafe=0.0;float vertical=0.0;vec2 look=(0,0);int scroll=0;bool place=false;bool erase=false;bool fixed=false;bool escape=false;bool quit=false;bool focused=true;bool alt=false;bool shoot=false;bool held=false;bool release=false;bool captured=true)
+float SHOT_SCALE=0.35
+float SHOT_LIFETIME=60.0
+type Game:(
+    World world=World();vec3 camera=(0,2.6,-3.5);float yaw=0.0;float pitch=0.23
+    int selected=0;int samples_per_frame=32;vec3 next_color=(0.4,0.7,0.8);list preview=[]
+    vec3 preview_position=(0,0,0);bool valid=false;bool fixed=false;Hit target=Hit()
+    float accumulator=0.0;bool quit=false;string notice="";float notice_time=0.0
+    int preview_revision=-1;int preview_selected=-1
+    vec3 preview_camera=(10000,10000,10000);vec3 preview_direction=(0,0,0)
+    bool shooting=false;bool charging=false;float charge_started=0.0;float charge_seconds=0.0;int preview_mode=-1
+)
+def basis(Game game)->tuple:(
+    vec3 forward=vec3(sin(game.yaw)*cos(game.pitch),-sin(game.pitch),cos(game.yaw)*cos(game.pitch))
+    vec3 right=vec3(cos(game.yaw),0,-sin(game.yaw))
+    return (forward,right,cross(forward,right))
+)
+def refresh_preview(Game game,bool force=false):(
+    bool new_preview=len(game.preview)==0 or game.preview_mode!=int(game.shooting)
+    float size=1.0
+    if game.shooting:(size=SHOT_SCALE)
+    if new_preview:(game.preview=prototypes(game.selected,game.next_color,size))
+    vec3 forward=basis(game)[0]
+    if not force and not new_preview and game.preview_revision==game.world.revision and game.preview_selected==game.selected and game.preview_camera==game.camera and game.preview_direction==forward:(return)
+    \ Placement reaches two feet. Longer deletion rays are only needed on a click.
+    if game.shooting:(
+        float radius=0.0
+        for part in game.preview:(radius=max(radius,length(part.position)+part.bound))
+        game.preview_position=game.camera+forward*(radius+0.2)
+        game.target=Hit()
+    )
+    else:(
+        game.target=cast(game.world,game.camera,forward,2.0)
+        game.preview_position=placement(game.world,game.preview,game.camera,forward,game.target)
+    )
+    game.valid=len(game.world.bodies)+len(game.preview)<=MAX_BODIES and clear(game.world,game.preview,game.preview_position)
+    game.preview_revision=game.world.revision;game.preview_selected=game.selected
+    game.preview_camera=game.camera;game.preview_direction=forward
+    game.preview_mode=int(game.shooting)
+)
+def choose(Game game,int scroll):(
+    if scroll==0:(return)
+    game.selected=(game.selected+scroll)%len(names)
+    if game.selected<0:(game.selected+=len(names))
+    game.preview=[]
+)
+def fire(Game game,float now)->bool:(
+    refresh_preview(game,true)
+    if not game.valid:(game.notice="Muzzle blocked - make room for the shot";game.notice_time=1.5;return false)
+    list parts=add(game.world,game.selected,game.preview_position,false,game.next_color,SHOT_SCALE)
+    if len(parts)==0:(return false)
+    vec3 velocity=basis(game)[0]*(6.0+12.0*game.charge_seconds)
+    for part in parts:(part.velocity=velocity)
+    game.world.projectiles[parts[0].group]=(parts[0].id,now+SHOT_LIFETIME)
+    game.next_color=random_color();game.preview=[]
+    return true
+)
+
+def update(Game game,Controls input,float dt,float now=-1.0):(
+    bool realtime=now<0.0
+    if realtime:(now=time())
+    float input_time=now
+    expire(game.world,now)
+    game.quit=input.quit
+    game.notice_time=max(0.0,game.notice_time-dt)
+    if input.focused:(
+        game.yaw+=input.look.x*0.0025;game.pitch=clamp(game.pitch+input.look.y*0.0025,-1.5,1.5)
+        tuple axes=basis(game)
+        vec3 motion=vec3(sin(game.yaw),0,cos(game.yaw))*input.forward+axes[1]*input.strafe+vec3(0,1,0)*input.vertical
+        if dot(motion,motion)>0:(game.camera+=normalize(motion)*(3.5*min(dt,0.05)))
+        game.camera.y=max(0.08,game.camera.y)
+        if input.alt:(game.samples_per_frame=max(1,game.samples_per_frame-input.scroll))
+        else:(choose(game,input.scroll))
+    )
+    game.fixed=input.fixed
+    game.accumulator+=clamp(dt,0.0,0.25)
+    while game.accumulator+0.000000000001>=STEP:(step(game.world,STEP);game.accumulator=max(0.0,game.accumulator-STEP))
+    if realtime:(now=time())
+    expire(game.world,now)
+    if not input.focused or not input.captured or input.escape or input.quit:(game.charging=false;game.charge_seconds=0.0)
+    game.shooting=input.shoot or game.charging
+    if game.charging:(game.charge_seconds=max(0.0,input_time-game.charge_started))
+    refresh_preview(game)
+    if input.erase:(
+        Hit aimed=cast(game.world,game.camera,basis(game)[0],80.0)
+        if aimed.found and aimed.id>=0:(delete(game.world,aimed.id);refresh_preview(game,true))
+    )
+    if input.place and input.focused and input.captured and not input.escape and not input.quit and input.shoot:(
+        game.charging=true;game.charge_started=input_time;game.charge_seconds=0.0;game.shooting=true
+        refresh_preview(game,true)
+    )
+    if input.release and game.charging:(
+        fire(game,now);game.charging=false;game.charge_seconds=0.0;game.shooting=input.shoot
+        refresh_preview(game,true)
+    )
+    if game.charging and not input.held and not input.place and not input.release:(game.charging=false;game.charge_seconds=0.0;game.shooting=input.shoot;refresh_preview(game,true))
+    if input.place and not input.shoot and not game.charging:(
+        refresh_preview(game,true)
+        if game.valid:(
+            add(game.world,game.selected,game.preview_position,game.fixed,game.next_color)
+            game.next_color=random_color();game.preview=[];refresh_preview(game)
+        )
+        else:(game.notice="Blocked - make room for the whole object";game.notice_time=1.5)
+    )
+)

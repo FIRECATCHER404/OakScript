@@ -1,0 +1,13 @@
+\ Run the real game and report timing without GPU readback or simulated input.
+from "main.oak" import draw as game_frame;game;renderer
+float started=time();float work=0.0;int frames=0
+def draw():(
+    float before=time()
+    game_frame()
+    float now=time();work+=now-before;frames+=1
+    if now-started>=1.0:(
+        int awake=sum([int(body.inverse_mass>0 and not body.sleeping) for body in game.world.bodies])
+        print("raygame:","{0:.1f}".format(frames/(now-started)),"FPS;","{0:.2f}".format(work*1000/frames),"ms Oak draw work;",awake,"awake /",len(game.world.bodies),"bodies;",renderer.samples_per_frame,"spp/frame;",renderer.samples*renderer.samples_per_frame,"accumulated; camera",game.camera)
+        started=now;work=0.0;frames=0
+    )
+)

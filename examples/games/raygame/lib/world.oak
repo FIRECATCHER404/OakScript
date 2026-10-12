@@ -1,0 +1,178 @@
+\ Raygame uses feet, seconds and kilograms. Placements and charged shots are
+\ dynamic. The fixed add() API can still anchor objects or only a dummy torso.
+type Body:(
+    int id=-1; int group=-1; int shape=0
+    vec3 position=(0,0,0); quat rotation=(0,0,0,1)
+    vec3 size=(0.25,0,0); float bound=0.25
+    vec3 velocity=(0,0,0); vec3 angular=(0,0,0)
+    vec3 previous=(0,0,0); quat previous_rotation=(0,0,0,1)
+    vec3 correction=(0,0,0);vec3 angular_correction=(0,0,0)
+    vec3 previous_velocity=(0,0,0);vec3 predicted=(0,0,0);quat predicted_rotation=(0,0,0,1)
+    float inverse_mass=1.0; vec3 inverse_inertia=(1,1,1)
+    vec3 tint=(0.5,0.5,0.5); vec3 emission=(0,0,0)
+    float roughness=0.35; float metal=0.0
+    bool active=true; bool sleeping=false; float quiet=0.0
+    int face=0; float restitution=0.15; float friction=0.65
+    float drag_coefficient=0.47;float angular_drag=0.35
+)
+type Joint:(Body a; Body b; vec3 anchor_a; vec3 anchor_b; float bend=-0.2; vec3 multiplier=(0,0,0))
+type World:(list bodies=[]; list joints=[]; list lights=[]; set linked=set(); int next_id=0; int next_group=1; int revision=0;float air_density=1.225;dict contact_cache={};list contacts=[];dict projectiles={};bool audit_motion=false;int motion_commits=0)
+int MAX_BODIES=192
+list names=["Cube","Sphere","Capsule","Mirror sphere","Jointed dummy","Red light sphere","Green light sphere","Blue light sphere","White light sphere"]
+list light_colors=[vec3(1,0,0),vec3(0,1,0),vec3(0,0,1),vec3(1,1,1)]
+
+def random_color() -> vec3:(
+    return vec3(0.18+random()*0.72,0.18+random()*0.72,0.18+random()*0.72)
+)
+def make_body(int shape,vec3 size,vec3 position,vec3 tint,float mass=1.0,float friction=0.65) -> Body:(
+    Body body=Body()
+    body.shape=shape; body.size=size; body.position=position; body.previous=position; body.tint=tint
+    body.friction=clamp(friction,0.0,1.0)
+    if shape==0:(body.bound=size.x)
+    if shape==1:(body.bound=length(size))
+    if shape==2:(body.bound=size.x+size.y)
+    if shape==1:(body.drag_coefficient=1.05)
+    if shape==2:(body.drag_coefficient=0.80)
+    if mass<=0:(body.inverse_mass=0.0; body.inverse_inertia=(0,0,0); return body)
+    body.inverse_mass=1.0/mass
+    if shape==0:(body.inverse_inertia=vec3(1,1,1)*(2.5/(mass*size.x*size.x)))
+    if shape==1:(body.inverse_inertia=vec3(3.0/(mass*(size.y*size.y+size.z*size.z)),3.0/(mass*(size.x*size.x+size.z*size.z)),3.0/(mass*(size.x*size.x+size.y*size.y))))
+    if shape==2:(
+        float sideways=3.0/(mass*(size.x*size.x+(size.y+size.x)**2))
+        body.inverse_inertia=vec3(sideways,2.0/(mass*size.x*size.x),sideways)
+    )
+    return body
+)
+def base_prototypes(int selected,vec3 tint) -> list:(
+    assert(selected>=0 and selected<len(names),"Unknown placement type")
+    if selected==0:(return [make_body(1,vec3(0.27,0.27,0.27),vec3(0,0,0),tint)])
+    if selected==1:(return [make_body(0,vec3(0.27,0,0),vec3(0,0,0),tint,1.0,0.35)])
+    if selected==2:(
+        Body capsule=make_body(2,vec3(0.14,0.28,0),vec3(0,0,0),tint,1.0,0.55)
+        return [capsule]
+    )
+    if selected==3:(
+        Body mirror=make_body(0,vec3(0.32,0,0),vec3(0,0,0),tint)
+        mirror.metal=0.96; mirror.roughness=0.045; mirror.friction=0.05
+        return [mirror]
+    )
+    if selected>=5:(
+        vec3 color=light_colors[selected-5]
+        Body ball=make_body(0,vec3(0.22,0,0),vec3(0,0,0),color,0.7,0.20)
+        ball.emission=color*32.0;ball.roughness=0.18;ball.restitution=0.42
+        return [ball]
+    )
+    list parts=[
+        make_body(1,vec3(0.23,0.32,0.13),vec3(0,0.50,0),tint,2.5),
+        make_body(1,vec3(0.22,0.13,0.13),vec3(0,0.04,0),tint,1.6),
+        make_body(0,vec3(0.14,0,0),vec3(0,1.03,0),tint,0.7),
+        make_body(2,vec3(0.065,0.15,0),vec3(-0.34,0.56,0),tint,0.55),
+        make_body(2,vec3(0.055,0.12,0),vec3(-0.34,0.16,0),tint,0.4),
+        make_body(2,vec3(0.065,0.15,0),vec3(0.34,0.56,0),tint,0.55),
+        make_body(2,vec3(0.055,0.12,0),vec3(0.34,0.16,0),tint,0.4),
+        make_body(2,vec3(0.07,0.15,0),vec3(-0.12,-0.32,0),tint,0.85),
+        make_body(2,vec3(0.06,0.14,0),vec3(-0.12,-0.75,0),tint,0.65),
+        make_body(2,vec3(0.07,0.15,0),vec3(0.12,-0.32,0),tint,0.85),
+        make_body(2,vec3(0.06,0.14,0),vec3(0.12,-0.75,0),tint,0.65),
+        make_body(1,vec3(0.08,0.055,0.14),vec3(-0.12,-1.02,0.055),tint,0.3),
+        make_body(1,vec3(0.08,0.055,0.14),vec3(0.12,-1.02,0.055),tint,0.3)
+    ]
+    for body in parts:(body.friction=1.0)
+    parts[2].face=1
+    return parts
+)
+
+def prototypes(int selected,vec3 tint,float scale=1.0)->list:(
+    assert(scale>0.0,"Object scale must be positive")
+    list parts=base_prototypes(selected,tint)
+    if scale!=1.0:(for body in parts:(
+        body.position*=scale;body.previous=body.position;body.size*=scale;body.bound*=scale
+        body.inverse_mass/=scale**3;body.inverse_inertia/=scale**5
+    ))
+    return parts
+)
+def link(World world,Body a,Body b,vec3 point,float bend=-0.2):(
+    append(world.joints,Joint(a,b,conjugate(a.rotation)*(point-a.position),conjugate(b.rotation)*(point-b.position),bend))
+    world.linked.add((min(a.id,b.id),max(a.id,b.id)))
+)
+def add(World world,int selected,vec3 position,bool fixed=false,vec3 tint=vec3(-1,-1,-1),float scale=1.0) -> list:(
+    if tint.x<0:(tint=random_color())
+    list parts=prototypes(selected,tint,scale)
+    if len(world.bodies)+len(parts)>MAX_BODIES:(return [])
+    int group=world.next_group; world.next_group+=1
+    for index,body in enumerate(parts):(
+        body.position+=position; body.previous=body.position
+        body.id=world.next_id; world.next_id+=1; body.group=group
+        if fixed and (selected!=4 or index==0):(
+            body.inverse_mass=0.0;body.inverse_inertia=(0,0,0)
+        )
+        append(world.bodies,body)
+        if dot(body.emission,body.emission)>0.0:(append(world.lights,body))
+    )
+    if selected==4:(
+        link(world,parts[0],parts[1],position+vec3(0,0.175,0)*scale,0.4)
+        link(world,parts[0],parts[2],position+vec3(0,0.87,0)*scale,0.5)
+        link(world,parts[0],parts[3],position+vec3(-0.285,0.77,0)*scale)
+        link(world,parts[3],parts[4],position+vec3(-0.34,0.34,0)*scale,0.0)
+        link(world,parts[0],parts[5],position+vec3(0.285,0.77,0)*scale)
+        link(world,parts[5],parts[6],position+vec3(0.34,0.34,0)*scale,0.0)
+        link(world,parts[1],parts[7],position+vec3(-0.12,-0.095,0)*scale,0.0)
+        link(world,parts[7],parts[8],position+vec3(-0.12,-0.545,0)*scale,0.0)
+        link(world,parts[1],parts[9],position+vec3(0.12,-0.095,0)*scale,0.0)
+        link(world,parts[9],parts[10],position+vec3(0.12,-0.545,0)*scale,0.0)
+        link(world,parts[8],parts[11],position+vec3(-0.12,-0.958,0)*scale,0.4)
+        link(world,parts[10],parts[12],position+vec3(0.12,-0.958,0)*scale,0.4)
+    )
+    world.revision+=1
+    return parts
+)
+def wake_connected(World world,int group):(
+    set groups=set([group])
+    for iteration in range(len(world.bodies)+1):(
+        bool changed=false
+        for pair in world.contacts:(
+            if pair[0].group in groups and pair[1].inverse_mass>0 and pair[1].group not in groups:(groups.add(pair[1].group);changed=true)
+            if pair[1].group in groups and pair[0].inverse_mass>0 and pair[0].group not in groups:(groups.add(pair[0].group);changed=true)
+        )
+        if not changed:(break)
+    )
+    for body in world.bodies:(
+        if body.group in groups and body.inverse_mass>0 and body.sleeping:(body.sleeping=false;body.quiet=0.0)
+    )
+)
+
+def delete(World world,int id) -> bool:(
+    int group=-1
+    for body in world.bodies:(if body.id==id:(group=body.group;break))
+    if group<0:(return false)
+    if group in world.projectiles:(world.projectiles.pop(group))
+    wake_connected(world,group)
+    for i in range(len(world.bodies)-1,-1,-1):(
+        if world.bodies[i].group==group:(world.bodies[i].active=false;pop(world.bodies,i))
+    )
+    world.joints=[joint for joint in world.joints if joint.a.active and joint.b.active]
+    world.lights=[light for light in world.lights if light.active]
+    world.linked=set([(min(joint.a.id,joint.b.id),max(joint.a.id,joint.b.id)) for joint in world.joints])
+    world.contacts=[pair for pair in world.contacts if pair[0].active and pair[1].active]
+    world.contact_cache={}
+    world.revision+=1
+    return true
+)
+
+def expire(World world,float now)->int:(
+    list expired=[shot[0] for shot in world.projectiles.values() if now>=shot[1]]
+    for id in expired:(delete(world,id))
+    return len(expired)
+)
+def initialize(World world):(
+    list points=[vec3(-1.4,2.4,1.0),vec3(1.35,2.8,1.2),vec3(-0.9,3.6,3.3),vec3(1.0,4.0,3.5)]
+    for i in range(4):(
+        Body ball=add(world,5+i,points[i])[0]
+        ball.velocity=vec3((i%2*2-1)*0.6,0,0.35)
+    )
+    add(world,0,vec3(-0.85,1.7,2.3),false,vec3(0.16,0.65,0.82))
+    add(world,3,vec3(0.1,1.9,1.4),false,vec3(0.85,0.91,0.95))
+    add(world,2,vec3(-0.25,2.8,3.3),false,vec3(0.84,0.47,0.13))
+    add(world,4,vec3(1.4,3.5,5.2),false,vec3(0.68,0.38,0.17))
+    world.revision+=1
+)

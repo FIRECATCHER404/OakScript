@@ -1,0 +1,22 @@
+from "lib/game.oak" import Game;initialize;update
+from "lib/input.oak" import Controls;poll
+from "lib/meshing.oak" import build;refresh
+from "lib/render.oak" import render
+
+print("Oak Blocks: building the grove...")
+Game game = Game()
+Controls controls = Controls()
+initialize(game)
+list chunks = build(game.world)
+print("Ready. Enter to play; Escape releases the mouse.")
+window "Oak Blocks | OakScript" 1280 800
+bool captured = false
+
+def draw():(
+    poll(controls)
+    update(game,controls,delta_time)
+    if game.quit:(close_window();return)
+    if game.active != captured:(lock_mouse(game.active); captured = game.active)
+    refresh(game.world,chunks)
+    render(game,chunks)
+)

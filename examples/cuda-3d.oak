@@ -1,0 +1,32 @@
+\ Select CUDA when available; the same drawing calls also work on the default backend.
+use_cuda(cuda_available())
+window "OakScript CUDA 3D" 800 600
+camera view=create_camera()
+view.position=(5,4,-7);view.rotation=(18,-28,0)
+set_camera(view)
+light sun=create_light()
+sun.direction=(0.5,-1,0.5);sun.cast_shadows=true;sun.shadow_filter=<pcf>
+add_light(sun)
+set_ambient((255,255,255),0.2)
+texture checker=load_texture("assets/checker.png")
+checker.repeat=true;checker.mipmap=true;checker.anisotropic=4
+mesh floor=create_mesh([
+    vertex((-6,0,-3),(0,0),(0,1,0)),vertex((6,0,-3),(6,0),(0,1,0)),
+    vertex((6,0,9),(6,6),(0,1,0)),vertex((-6,0,9),(0,6),(0,1,0))
+],[0,1,2,0,2,3])
+material surface=create_material();surface.texture=checker
+floor.material=surface
+mesh cube=create_mesh([
+    vec3(-1,0,-1),vec3(1,0,-1),vec3(1,2,-1),vec3(-1,2,-1),
+    vec3(-1,0,1),vec3(1,0,1),vec3(1,2,1),vec3(-1,2,1)
+],[0,1,2,0,2,3,4,7,6,4,6,5,0,4,5,0,5,1,3,2,6,3,6,7,0,3,7,0,7,4,1,5,6,1,6,2])
+material orange=create_material();orange.color=(230,125,65);cube.material=orange
+font face=load_font("games/oak-blocks/assets/AtkinsonHyperlegible-Regular.ttf")
+cull.mode=<none>
+print("3D backend:",graphics_backend())
+def draw():(
+    if key_pressed("Escape"):(close_window())
+    if key_pressed("S"):(sun.cast_shadows=not sun.cast_shadows)
+    clear((24,30,38));draw_mesh(floor);draw_mesh(cube)
+    draw_text2("Backend: "+graphics_backend()+"   S: shadows   Esc: close",16,16,(240,240,240),face,18)
+)

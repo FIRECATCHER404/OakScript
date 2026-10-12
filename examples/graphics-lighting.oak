@@ -34,4 +34,4 @@ def draw():(
     draw_mesh(ground)
     draw_mesh(block)
 )
-/# 1 directional, 2 point, 3 spot; S toggles shadows; Escape closes. #/
+\# 1 directional, 2 point, 3 spot; S toggles shadows; Escape closes. #\

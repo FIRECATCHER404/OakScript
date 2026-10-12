@@ -1,4 +1,4 @@
-/# Functions, loops, lists, scopes, math types, and tuple construction. #/
+\# Functions, loops, lists, scopes, math types, and tuple construction. #\
 def factorial(int n) -> int:(
     if n <= 1:(
         return 1

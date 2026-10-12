@@ -1,0 +1,9 @@
+\ JSON maps arithmetic to a differently named file; libpath locates utility.
+from arithmetic import square
+from utility import add
+
+def __main__() -> int:(
+    assert(square(1.5) == 2.25)
+    println("Library paths:",add(square(1.5),0.75))
+    return 0
+)

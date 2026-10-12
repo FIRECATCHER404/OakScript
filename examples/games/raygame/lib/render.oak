@@ -1,0 +1,147 @@
+from "world.oak" import World;Body;MAX_BODIES;names
+from "game.oak" import Game;basis
+type Renderer:(
+    gpu_buffer parameters;gpu_buffer bodies;gpu_buffer preview;gpu_buffer history;gpu_buffer guides;gpu_buffer lights;gpu_buffer groups;gpu_buffer filter_a;gpu_buffer filter_b
+    gpu_image image;texture surface;compute_shader tracer;compute_shader filter;compute_shader resolve;font face
+    int width;int height;int frame=0;int samples=0;int revision=-1;int selected=-1
+    vec3 camera=(10000,10000,10000);vec3 direction=(0,0,0);vec3 ghost=(10000,10000,10000)
+    bool valid=false;dict indices={};float fps=0.0;int bounces=4;int previous_bounces=-1
+    int light_count=0;int group_count=0;int samples_per_frame=8;int previous_samples_per_frame=-1
+    bool denoise=true
+    float fps_started=0.0;int fps_frames=0
+    bool shooting=false
+)
+def create(int width=1280,int height=720)->Renderer:(
+    gpu_image image=create_image(width,height)
+    texture surface=compute_texture(image)
+    surface.filter=<linear>
+    return Renderer(create_buffer(48),create_buffer(MAX_BODIES*24),create_buffer(13*24),create_buffer(width*height*4),create_buffer(width*height*12),create_buffer(MAX_BODIES),create_buffer(MAX_BODIES*8),create_buffer(width*height*4),create_buffer(width*height*4),image,surface,load_compute_shader("../assets/shaders/trace.comp.spv"),load_compute_shader("../assets/shaders/filter.comp.spv"),load_compute_shader("../assets/shaders/resolve.comp.spv"),load_font("../assets/AtkinsonHyperlegible-Regular.ttf"),width,height)
+)
+def pack(Body b,vec3 offset=vec3(0,0,0))->list:(
+    vec3 at=b.position+offset;quat q=b.rotation
+    return [float(b.shape),at.x,at.y,at.z,q.x,q.y,q.z,q.w,b.size.x,b.size.y,b.size.z,b.bound,b.tint.x,b.tint.y,b.tint.z,b.roughness,b.emission.x,b.emission.y,b.emission.z,b.metal,float(b.id),float(b.group),b.inverse_mass,float(b.face)]
+)
+def pack_group(vec3 low,vec3 high,int start,int end)->list:(
+    vec3 center=(low+high)*0.5
+    return [center.x,center.y,center.z,length(high-low)*0.5,start,end,0,0]
+)
+
+def scene(Renderer r,World world):(
+    list data=[];list bounds=[];r.indices={}
+    int previous_group=-1;int start=0;vec3 low=(0,0,0);vec3 high=(0,0,0)
+    for index,body in enumerate(world.bodies):(
+        data=[*data,*pack(body)]
+        r.indices[body.id]=index
+        vec3 radius=vec3(1,1,1)*(body.bound+0.003)
+        vec3 lower=body.position-radius;vec3 upper=body.position+radius
+        if index==0 or body.group!=previous_group:(
+            if index>0:(bounds=[*bounds,*pack_group(low,high,start,index)])
+            low=lower;high=upper;start=index;previous_group=body.group
+        )
+        else:(
+            low=vec3(min(low.x,lower.x),min(low.y,lower.y),min(low.z,lower.z))
+            high=vec3(max(high.x,upper.x),max(high.y,upper.y),max(high.z,upper.z))
+        )
+    )
+    if len(world.bodies)>0:(bounds=[*bounds,*pack_group(low,high,start,len(world.bodies))])
+    r.group_count=len(bounds)//8
+    if len(bounds)>0:(write_buffer(r.groups,bounds))
+    if len(data)>0:(write_buffer(r.bodies,data))
+    list lights=[]
+    for light in world.lights:(
+        int index=r.indices.get(light.id,-1)
+        if light.active and index>=0:(append(lights,float(index)))
+    )
+    r.light_count=len(lights)
+    if len(lights)>0:(write_buffer(r.lights,lights))
+)
+\ Filter display lighting only. The original HDR accumulation stays untouched.
+def filter_lighting(Renderer r)->gpu_buffer:(
+    if not r.denoise:(return r.history)
+    gpu_buffer source=r.history
+    for pass in range(3):(
+        gpu_buffer target=r.filter_a
+        if pass==1:(target=r.filter_b)
+        write_buffer(r.parameters,[float(pass)],32)
+        dispatch(r.filter,[r.parameters,source,r.guides,target],(r.width+7)//8,(r.height+7)//8)
+        source=target
+    )
+    return source
+)
+
+def rectangle(float x,float y,float w,float h,color tint):(
+    fill_poly([(x,y),(x+w,y),(x+w,y+h),(x,y+h)],tint)
+)
+def text(Renderer r,string value,float x,float y,float pixels,color tint):(
+    draw_text(value,x,y,tint,r.face,pixels)
+)
+def hud(Renderer r,Game game,vec2 size):(
+    color white=(232,240,248);color muted=(164,183,204);color cyan=(94,232,195)
+    rectangle(14,12,164,51,(8,12,19,185))
+    text(r,"raygame",25,19,25,white)
+    text(r,"PHYSICS / LIGHT",26,47,10,muted)
+    string kind="DYNAMIC"
+    if game.fixed:(kind="FIXED")
+    if game.fixed and game.selected==4:(kind="FIXED TORSO")
+    if game.shooting:(kind="SHOT")
+    if game.charging:(kind="CHARGE "+string(round(game.charge_seconds*10.0)/10.0)+"s")
+    string selection=names[game.selected]+"   "+string(game.selected+1)+"/"+string(len(names))+"   "+kind
+    vec2 label_size=measure_text(selection,r.face,18)
+    rectangle((size.x-label_size.x)*0.5-13,size.y-74,label_size.x+26,32,(8,12,19,200))
+    text(r,selection,(size.x-label_size.x)*0.5,size.y-68,18,white)
+    string help="WASD move   Space up   Shift down   Wheel choose   Alt+Wheel samples   LMB place   Ctrl+LMB charge/release fire   RMB delete   Esc capture   Q quit"
+    vec2 help_size=measure_text(help,r.face,12)
+    text(r,help,(size.x-help_size.x)*0.5,size.y-24,12,muted)
+    color aim=cyan
+    if not game.valid:(aim=(255,98,81))
+    float x=size.x*0.5;float y=size.y*0.5
+    rectangle(x-6,y-1,4,2,aim);rectangle(x+2,y-1,4,2,aim);rectangle(x-1,y-6,2,4,aim);rectangle(x-1,y+2,2,4,aim)
+    if game.notice_time>0:(
+        vec2 notice_size=measure_text(game.notice,r.face,14)
+        text(r,game.notice,(size.x-notice_size.x)*0.5,y+24,14,(255,144,121))
+    )
+    string status="2 ft / "+string(len(game.world.bodies))+" bodies / "+string(r.samples_per_frame)+" spp/frame / "+string(r.samples*r.samples_per_frame)+" samples"
+    vec2 status_size=measure_text(status,r.face,12)
+    text(r,status,size.x-status_size.x-20,23,12,white)
+    string fps_label="-- FPS"
+    if r.fps>0:(fps_label=string(int(round(r.fps)))+" FPS")
+    vec2 fps_size=measure_text(fps_label,r.face,18)
+    text(r,fps_label,size.x-fps_size.x-20,44,18,white)
+    if not mouse_locked():(text(r,"Mouse released - Esc to capture",25,76,14,white))
+)
+
+def render(Renderer r,Game game):(
+    assert(r.samples_per_frame>0,"Samples per frame must be positive")
+    \ Measure complete frame intervals, including physics and presentation.
+    \ Average for half a second; the physics timestep is deliberately capped.
+    float now=time()
+    if r.fps_started==0.0 or now<r.fps_started:(r.fps_started=now;r.fps_frames=0;r.fps=0.0)
+    else:(
+        r.fps_frames+=1
+        float elapsed=now-r.fps_started
+        if elapsed>=0.5:(r.fps=r.fps_frames/elapsed;r.fps_started=now;r.fps_frames=0)
+    )
+    tuple axes=basis(game)
+    bool changed=r.revision!=game.world.revision or r.camera!=game.camera or r.direction!=axes[0] or r.selected!=game.selected or r.ghost!=game.preview_position or r.valid!=game.valid or r.bounces!=r.previous_bounces or r.samples_per_frame!=r.previous_samples_per_frame or r.shooting!=game.shooting
+    if r.revision!=game.world.revision:(scene(r,game.world))
+    \ A charging preview changes scale even when its origin/type stays the same.
+    if r.ghost!=game.preview_position or r.selected!=game.selected or r.shooting!=game.shooting:(
+        list data=[]
+        for body in game.preview:(data=[*data,*pack(body,game.preview_position)])
+        write_buffer(r.preview,data)
+    )
+    r.frame=(r.frame+1)%1000000
+    if changed:(r.samples=1)
+    else:(r.samples+=1)
+    vec3 forward=axes[0];vec3 right=axes[1];vec3 up=axes[2];vec3 c=game.camera;vec3 g=game.preview_position
+    write_buffer(r.parameters,[c.x,c.y,c.z,0,forward.x,forward.y,forward.z,0,right.x,right.y,right.z,0,up.x,up.y,up.z,0,r.width,r.height,r.frame,r.samples,len(game.world.bodies),r.bounces,int(game.valid),game.selected,g.x,g.y,g.z,len(game.preview),int(game.fixed),r.samples_per_frame,0,r.light_count,0,0,r.group_count,0,0,0,0,0,0,0,0,0,0,0,0,0])
+    dispatch(r.tracer,[r.parameters,r.bodies,r.preview,r.history,r.guides,r.lights,r.groups],(r.width+7)//8,(r.height+7)//8)
+    gpu_buffer lighting=filter_lighting(r)
+    dispatch(r.resolve,[r.parameters,lighting,r.guides,r.image],(r.width+7)//8,(r.height+7)//8)
+    vec2 size=window_size()
+    clear((8,11,18))
+    texture_blit(r.surface,0,0,size.x,size.y)
+    hud(r,game,size)
+    r.revision=game.world.revision;r.camera=game.camera;r.direction=axes[0];r.selected=game.selected;r.ghost=game.preview_position;r.valid=game.valid;r.previous_bounces=r.bounces;r.previous_samples_per_frame=r.samples_per_frame
+    r.shooting=game.shooting
+)

@@ -1,0 +1,225 @@
+#version 450
+// Genuine world-space ray intersections and Monte Carlo light transport.
+layout(local_size_x=8,local_size_y=8) in;
+layout(set=0,binding=0,std430) readonly buffer Parameters { float p[]; };
+layout(set=0,binding=1,std430) readonly buffer Objects { float objects[]; };
+layout(set=0,binding=2,std430) readonly buffer Preview { float preview[]; };
+layout(set=0,binding=3,std430) buffer History { vec4 history[]; };
+layout(set=0,binding=4,std430) buffer Guides { vec4 guides[]; };
+layout(set=0,binding=5,std430) readonly buffer Lights { float lightIndices[]; };
+layout(set=0,binding=6,std430) readonly buffer Groups { vec4 groupBounds[]; };
+const float PI=3.14159265359, EPS=0.001, FAR=80.0;
+struct Object { int shape; vec3 center; vec4 q; vec3 h; float bound; vec3 color; float rough; vec3 emission; float metal; int id; int face; };
+struct Hit { float t; vec3 n; int index; };
+struct Material { vec3 color; float rough; float metal; vec3 emission; };
+uint state;
+uint hash(uint x) { x^=x>>16; x*=0x7feb352du; x^=x>>15; x*=0x846ca68bu; return x^(x>>16); }
+float random01() { state=hash(state+0x9e3779b9u); return float(state>>8)*(1.0/16777216.0); }
+vec3 pv(int i) { return vec3(p[i],p[i+1],p[i+2]); }
+float load(int i,bool ghost) { return ghost?preview[i]:objects[i]; }
+vec3 load3(int i,bool ghost) { return vec3(load(i,ghost),load(i+1,ghost),load(i+2,ghost)); }
+Object objectAt(int i,bool ghost) {
+    int k=i*24; Object o;
+    o.shape=int(load(k,ghost)); o.center=load3(k+1,ghost);
+    o.q=vec4(load3(k+4,ghost),load(k+7,ghost)); o.h=load3(k+8,ghost); o.bound=load(k+11,ghost);
+    o.color=load3(k+12,ghost); o.rough=load(k+15,ghost); o.emission=load3(k+16,ghost); o.metal=load(k+19,ghost);
+    o.id=int(load(k+20,ghost)); o.face=int(load(k+23,ghost)); return o;
+}
+vec3 rotateQ(vec4 q,vec3 v) { return v+2.0*cross(q.xyz,cross(q.xyz,v)+q.w*v); }
+vec3 unrotate(vec4 q,vec3 v) { return rotateQ(vec4(-q.xyz,q.w),v); }
+vec2 sphereRoots(vec3 ro,vec3 rd,float radius) {
+    float b=dot(ro,rd), c=dot(ro,ro)-radius*radius, d=b*b-c;
+    if(d<0.0) return vec2(FAR+1.0);
+    float root=sqrt(d); return vec2(-b-root,-b+root);
+}
+Hit intersect(Object o,vec3 origin,vec3 direction,float maximum) {
+    Hit hit=Hit(maximum,vec3(0),-1);
+    vec3 relative=origin-o.center;
+    float along=dot(relative,direction);
+    if(dot(relative,relative)-along*along>o.bound*o.bound || along>o.bound) return hit;
+    vec3 ro=unrotate(o.q,relative), rd=unrotate(o.q,direction), n=vec3(0);
+    if(o.shape==0) {
+        vec2 roots=sphereRoots(ro,rd,o.h.x); float t=roots.x>EPS?roots.x:roots.y;
+        if(t>EPS&&t<maximum) { hit.t=t; n=(ro+rd*t)/o.h.x; }
+    } else if(o.shape==1) {
+        vec3 safe=vec3(abs(rd.x)<1e-8?(rd.x<0.0?-1e-8:1e-8):rd.x,abs(rd.y)<1e-8?(rd.y<0.0?-1e-8:1e-8):rd.y,abs(rd.z)<1e-8?(rd.z<0.0?-1e-8:1e-8):rd.z);
+        vec3 a=(-o.h-ro)/safe, b=(o.h-ro)/safe;
+        vec3 near=min(a,b), far=max(a,b);
+        float enter=max(near.x,max(near.y,near.z)), leave=min(far.x,min(far.y,far.z));
+        float t=enter>EPS?enter:leave;
+        if(leave>=enter&&t>EPS&&t<maximum) {
+            hit.t=t; vec3 at=ro+rd*t, ratio=abs(at/o.h);
+            if(ratio.x>ratio.y&&ratio.x>ratio.z) n=vec3(sign(at.x),0,0);
+            else if(ratio.y>ratio.z) n=vec3(0,sign(at.y),0); else n=vec3(0,0,sign(at.z));
+        }
+    } else {
+        float a=dot(rd.xz,rd.xz), b=dot(ro.xz,rd.xz), c=dot(ro.xz,ro.xz)-o.h.x*o.h.x, d=b*b-a*c;
+        if(a>1e-8&&d>=0.0) {
+            vec2 roots=vec2(-b-sqrt(d),-b+sqrt(d))/a;
+            for(int k=0;k<2;k++) { float t=roots[k]; vec3 at=ro+rd*t;
+                if(t>EPS&&t<hit.t&&abs(at.y)<=o.h.y) { hit.t=t; n=vec3(at.x,0,at.z)/o.h.x; }
+            }
+        }
+        for(int side=-1;side<=1;side+=2) {
+            vec3 center=vec3(0,float(side)*o.h.y,0); vec2 roots=sphereRoots(ro-center,rd,o.h.x);
+            for(int k=0;k<2;k++) { float t=roots[k]; vec3 at=ro+rd*t;
+                if(t>EPS&&t<hit.t&&float(side)*at.y>=o.h.y) { hit.t=t; n=(at-center)/o.h.x; }
+            }
+        }
+    }
+    hit.n=rotateQ(o.q,n); return hit;
+}
+Hit trace(vec3 ro,vec3 rd,float maximum) {
+    Hit best=Hit(maximum,vec3(0),-2);
+    if(rd.y< -1e-7) { float t=-ro.y/rd.y; if(t>EPS&&t<maximum) best=Hit(t,vec3(0,1,0),-1); }
+    // Existing BSDF rays can drift from unit length after grazing small shapes.
+    // Keep their exhaustive result; unit-ray bounds must not hide legacy hits.
+    bool grouped=abs(dot(rd,rd)-1.0)<0.000001;
+    int group=0,end=0;
+    for(int i=0;i<int(p[20]);i++) {
+        if(grouped&&i==end) {
+            vec4 sphere=groupBounds[group*2];end=int(groupBounds[group*2+1].y);group++;
+            vec3 relative=ro-sphere.xyz;float along=dot(relative,rd);
+            // A single conservative test skips every part in a missed ragdoll.
+            // Keep traversal flat to avoid expensive nested divergent GPU loops.
+            if(dot(relative,relative)-along*along>sphere.w*sphere.w||along>sphere.w||-along-sphere.w>best.t) { i=end-1;continue; }
+        }
+        Hit candidate=intersect(objectAt(i,false),ro,rd,best.t);
+        if(candidate.t<best.t) { best=candidate; best.index=i; }
+    }
+    return best;
+}
+Material material(Hit hit,vec3 position) {
+    if(hit.index<0) {
+        vec2 cell=fract(position.xz*0.5);
+        float checker=mod(floor(position.x*0.5)+floor(position.z*0.5),2.0);
+        float seam=1.0-step(0.013,min(min(cell.x,1.0-cell.x),min(cell.y,1.0-cell.y)));
+        vec3 color=mix(vec3(0.24,0.265,0.30),vec3(0.39,0.405,0.43),checker)*(1.0-seam*0.45);
+        return Material(color,0.15,0.13,vec3(0));
+    }
+    Object o=objectAt(hit.index,false); vec3 color=o.color;
+    if(o.face==1) {
+        vec3 local=unrotate(o.q,position-o.center)/o.h.x;
+        float eye=min(length(local.xy-vec2(-0.34,0.22)),length(local.xy-vec2(0.34,0.22)));
+        if(local.z< -0.65&&(eye<0.10||(abs(local.x)<0.30&&abs(local.y+0.3)<0.035))) color=vec3(0.018);
+    }
+    return Material(color,o.rough,o.metal,o.emission);
+}
+mat3 frame(vec3 n) { vec3 tangent=normalize(cross(abs(n.y)<0.95?vec3(0,1,0):vec3(1,0,0),n)); return mat3(tangent,cross(n,tangent),n); }
+vec3 sky(vec3 direction) { return mix(vec3(0.025,0.032,0.05),vec3(0.12,0.17,0.25),smoothstep(-0.15,0.85,direction.y)); }
+float power(float a,float b) { return a*a/max(a*a+b*b,1e-12); }
+float smith(float cosine,float alpha) { return 2.0*cosine/max(cosine+sqrt(alpha*alpha+(1.0-alpha*alpha)*cosine*cosine),1e-7); }
+float specProbability(Material m) { vec3 f0=mix(vec3(0.04),m.color,m.metal); return clamp(0.2+max(f0.x,max(f0.y,f0.z))*0.7,0.2,0.9); }
+vec3 bsdf(Material m,vec3 n,vec3 wo,vec3 wi,out float pdf) {
+    float nv=max(dot(n,wo),0.0), nl=max(dot(n,wi),0.0); pdf=0.0;
+    if(nv<=0.0||nl<=0.0) return vec3(0);
+    vec3 h=normalize(wo+wi); float nh=max(dot(n,h),0.0), vh=max(dot(wo,h),0.0);
+    float alpha=max(0.002,m.rough*m.rough), a2=alpha*alpha;
+    float denom=nh*nh*(a2-1.0)+1.0, D=a2/(PI*denom*denom);
+    vec3 F=mix(vec3(0.04),m.color,m.metal)+(1.0-mix(vec3(0.04),m.color,m.metal))*pow(1.0-vh,5.0);
+    vec3 spec=F*(D*smith(nv,alpha)*smith(nl,alpha)/max(4.0*nv*nl,1e-7));
+    vec3 diffuse=(1.0-F)*(1.0-m.metal)*m.color/PI;
+    float probability=specProbability(m); pdf=probability*D*nh/max(4.0*vh,1e-7)+(1.0-probability)*nl/PI;
+    return diffuse+spec;
+}
+vec3 sampleBsdf(Material m,vec3 n,vec3 wo) {
+    float u=random01(), v=random01(), phi=2.0*PI*v;
+    if(random01()<specProbability(m)) {
+        float alpha=max(0.002,m.rough*m.rough); float cosine=sqrt((1.0-u)/(1.0+(alpha*alpha-1.0)*u));
+        vec3 h=frame(n)*vec3(sqrt(max(0.0,1.0-cosine*cosine))*vec2(cos(phi),sin(phi)),cosine);
+        return reflect(-wo,h);
+    }
+    return frame(n)*vec3(sqrt(u)*vec2(cos(phi),sin(phi)),sqrt(1.0-u));
+}
+float lightPdf(Object lamp,vec3 origin) {
+    float distance2=dot(lamp.center-origin,lamp.center-origin), r2=lamp.h.x*lamp.h.x;
+    if(distance2<=r2) return 1.0/(4.0*PI);
+    return 1.0/(2.0*PI*max(1e-7,1.0-sqrt(max(0.0,1.0-r2/distance2))));
+}
+vec3 directLight(Material m,vec3 origin,vec3 n,vec3 wo) {
+    int count=int(p[31]);
+    if(count==0) return vec3(0);
+    // Sample the complete emitter list with its selection probability included
+    // in MIS, instead of tracing one shadow ray per light for every path bounce.
+    int index=int(lightIndices[min(int(random01()*float(count)),count-1)]);
+        Object lamp=objectAt(index,false); vec3 to=lamp.center-origin;
+        float distance=length(to); if(distance<=lamp.h.x) return vec3(0);
+        float cosMax=sqrt(max(0.0,1.0-lamp.h.x*lamp.h.x/(distance*distance)));
+        float cosine=1.0-random01()*(1.0-cosMax), phi=random01()*2.0*PI;
+        vec3 wi=frame(to/distance)*vec3(sqrt(max(0.0,1.0-cosine*cosine))*vec2(cos(phi),sin(phi)),cosine);
+        float nl=dot(n,wi); if(nl<=0.0) return vec3(0);
+        Hit visibility=trace(origin+n*EPS*2.0,wi,distance+lamp.h.x+EPS);
+        if(visibility.index!=index) return vec3(0);
+        float bsdfPdf; vec3 f=bsdf(m,n,wo,wi,bsdfPdf); float pdf=lightPdf(lamp,origin)/float(count);
+        return f*lamp.emission*(nl/pdf)*power(pdf,bsdfPdf);
+}
+vec3 radiance(vec3 ro,vec3 rd) {
+    vec3 light=vec3(0), throughput=vec3(1), previous=ro; float previousPdf=0.0;
+    for(int bounce=0;bounce<4;bounce++) {
+        if(bounce>=int(p[21])) break;
+        Hit hit=trace(ro,rd,FAR);
+        if(hit.index== -2) { light+=throughput*sky(rd); break; }
+        vec3 at=ro+rd*hit.t, n=dot(hit.n,rd)>0.0?-hit.n:hit.n;
+        Material m=material(hit,at);
+        if(max(m.emission.x,max(m.emission.y,m.emission.z))>0.0) {
+            float weight=1.0;
+            if(bounce>0&&int(p[31])>0) weight=power(previousPdf,lightPdf(objectAt(hit.index,false),previous)/p[31]);
+            light+=throughput*m.emission*weight; break;
+        }
+        light+=throughput*directLight(m,at,n,-rd);
+        vec3 wi=sampleBsdf(m,n,-rd); float pdf; vec3 f=bsdf(m,n,-rd,wi,pdf);
+        if(pdf<1e-9||dot(n,wi)<=0.0) break;
+        throughput*=f*(max(dot(n,wi),0.0)/pdf);
+        if(bounce>=2) { float survival=clamp(max(throughput.x,max(throughput.y,throughput.z)),0.08,0.95); if(random01()>survival) break; throughput/=survival; }
+        previous=at; previousPdf=pdf; ro=at+n*EPS*2.0; rd=wi;
+    }
+    return min(light,vec3(40));
+}
+vec3 cameraRay(vec2 pixel) {
+    vec2 screen=(pixel/vec2(p[16],p[17])*2.0-1.0); screen.y=-screen.y;
+    screen.x*=p[16]/p[17]; screen*=0.65;
+    return normalize(pv(4)+pv(8)*screen.x+pv(12)*screen.y);
+}
+bool outline(vec3 ro,vec3 rd,float sceneDepth) {
+    for(int i=0;i<int(p[27]);i++) {
+        Object o=objectAt(i,true); Hit hit=intersect(o,ro,rd,sceneDepth+0.004);
+        if(hit.t>=sceneDepth+0.004) continue;
+        if(o.shape==1) {
+            vec3 local=abs(unrotate(o.q,ro+rd*hit.t-o.center)); vec3 edge=abs(o.h-local);
+            if(int(edge.x<0.014)+int(edge.y<0.014)+int(edge.z<0.014)>=2) return true;
+        } else if(abs(dot(hit.n,rd))<0.30) return true;
+    }
+    return false;
+}
+void main() {
+    ivec2 pixel=ivec2(gl_GlobalInvocationID.xy), size=ivec2(p[16],p[17]);
+    if(any(greaterThanEqual(pixel,size))) return;
+    uint index=uint(pixel.y*size.x+pixel.x); state=hash(index^uint(p[18])*0x68bc21ebu);
+    vec3 camera=pv(0), centerRay=cameraRay(vec2(pixel)+0.5); Hit primary=trace(camera,centerRay,FAR);
+    Material surface=primary.index== -2?Material(vec3(0),1.0,0.0,vec3(0)):material(primary,camera+centerRay*primary.t);
+    vec3 sampleColor=vec3(0); float secondMoment=0.0;
+    int samples=int(p[29]);
+    for(int sampleIndex=0;sampleIndex<samples;sampleIndex++) {
+        vec3 value=radiance(camera,cameraRay(vec2(pixel)+vec2(random01(),random01())));
+        sampleColor+=value;
+        float luminance=dot(value,vec3(0.2126,0.7152,0.0722)); secondMoment+=luminance*luminance;
+    }
+    sampleColor/=float(samples);
+    secondMoment/=float(samples);
+    bool ghost=outline(camera,centerRay,primary.t);
+    if(ghost) { sampleColor=p[22]>0.5?vec3(0.15,1.8,1.3):vec3(2.0,0.08,0.04); float l=dot(sampleColor,vec3(0.2126,0.7152,0.0722)); secondMoment=l*l; }
+    float count=p[19]*float(samples); vec3 average=sampleColor;
+    if(count>float(samples)) {
+        float previousLuma=dot(history[index].rgb,vec3(0.2126,0.7152,0.0722));
+        float previousMoment=guides[index*3+2].w*history[index].a+previousLuma*previousLuma;
+        secondMoment=mix(previousMoment,secondMoment,float(samples)/count);
+        average=mix(history[index].rgb,sampleColor,float(samples)/count);
+    }
+    float meanLuma=dot(average,vec3(0.2126,0.7152,0.0722));
+    float variance=max(0.0,secondMoment-meanLuma*meanLuma)/count;
+    bool skip=ghost||primary.index== -2||max(surface.emission.x,max(surface.emission.y,surface.emission.z))>0.0;
+    guides[index*3]=vec4(primary.n,primary.t);
+    guides[index*3+1]=vec4(surface.color,float(primary.index));
+    guides[index*3+2]=vec4(surface.rough,surface.metal,skip?1.0:0.0,variance);
+    history[index]=vec4(average,count);
+}

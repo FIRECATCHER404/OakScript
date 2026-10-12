@@ -1,0 +1,397 @@
+from "lib/world.oak" import World;Body;names;light_colors;MAX_BODIES;make_body;prototypes;add;delete;initialize
+from "lib/geometry.oak" import Hit;Contact;contact;sdf;support;cast;placement;clear;segment_box;ray_candidates;scene_distance;safe_normal
+from "lib/physics.oak" import step;STEP;GRAVITY;METERS_PER_FOOT;ground;contact_friction;velocity_contact;drag_area;apply_air_drag;ground_contacts
+from "lib/game.oak" import Game;Controls;update;basis;choose;refresh_preview
+int passed=0
+def check(bool condition,string message):(
+    assert(condition,message);passed+=1;print("PASS",message)
+)
+def run_steps(World world,int count):(
+    for frame in range(count):(step(world,STEP))
+)
+
+def slide_on(float friction)->tuple:(
+    World world=World()
+    Body platform=add(world,0,vec3(0,1,0),true)[0]
+    platform.size=(10,0.5,5);platform.bound=length(platform.size);platform.friction=friction
+    Body slider=add(world,0,vec3(0,1.7701,0))[0]
+    slider.friction=1.0;slider.restitution=0.0;slider.velocity=(3,0,0)
+    run_steps(world,60)
+    return (slider.position.x,slider.velocity.x)
+)
+
+\ Isolate a central contact impulse so rotations cannot hide sliding resistance.
+def contact_speed(float moving_friction,float surface_friction,bool reverse=false)->float:(
+    Body moving=make_body(0,vec3(0.25,0,0),vec3(0,0,0),vec3(1,1,1),1.0,moving_friction)
+    Body surface=make_body(0,vec3(0.25,0,0),vec3(0,-0.5,0),vec3(1,1,1),0.0,surface_friction)
+    moving.velocity=(1,-1,0)
+    Contact hit=Contact(true,vec3(0,1,0),0.0,moving.position)
+    if reverse:(hit.normal=-hit.normal;velocity_contact(surface,moving,hit,STEP))
+    else:(velocity_contact(moving,surface,hit,STEP))
+    return moving.velocity.x
+)
+World empty=World()
+list shape=prototypes(0,vec3(0.4,0.6,0.8))
+vec3 origin=(0,1,0);vec3 forward=(0,0,1)
+Hit hit=cast(empty,origin,forward,2.0)
+check(not hit.found and hit.distance==2.0,"empty ray ends exactly two feet away")
+check(placement(empty,shape,origin,forward,hit)==vec3(0,1,2),"empty-space placement stays on the viewing ray")
+hit=cast(empty,vec3(0,1,0),vec3(0,-1,0),2.0)
+check(hit.found and hit.id==-1 and abs(hit.distance-1)<0.002,"raymarch finds the ground within two feet")
+vec3 position=placement(empty,shape,vec3(0,1,0),vec3(0,-1,0),hit)
+check(clear(empty,shape,position) and position.y>=0.27,"placement puts the whole cube above the ground")
+World blocked=World()
+add(blocked,0,vec3(0,1,1.5),true)
+hit=cast(blocked,origin,forward,2.0)
+check(hit.found and hit.id>=0 and hit.distance<2.0,"raymarch selects the closest actual object")
+position=placement(blocked,shape,origin,forward,hit)
+check(clear(blocked,shape,position),"surface placement does not intersect its supporting body")
+check(not clear(blocked,shape,vec3(0,1,1.5)),"overlapping placements are rejected")
+hit=cast(empty,vec3(0,3,0),vec3(0,-1,0),2.0)
+check(not hit.found,"surfaces beyond two feet cannot become placement targets")
+vec3 wrong=placement(empty,prototypes(4,vec3(0.5,0.5,0.5)),vec3(0,2.5,0),vec3(0,-1,0),hit)
+check(not clear(empty,prototypes(4,vec3(0.5,0.5,0.5)),wrong),"large blocked fallback objects are refused rather than intersecting terrain")
+
+for selected in range(4):(
+    World world=World();world.air_density=0.0;Body falling=add(world,selected,vec3(0,10,0))[0]
+    run_steps(world,30)
+    float expected=10-0.5*GRAVITY*(30*STEP)**2
+    check(abs(falling.position.y-expected)<0.00001,"free-fall trajectory matches feet/second gravity for "+names[selected])
+    run_steps(world,330)
+    check(support(falling,vec3(0,-1,0)).y> -0.004,"ground contact prevents penetration for "+names[selected])
+    check(length(falling.velocity)<1.0,"ground friction stabilizes "+names[selected])
+)
+World frozen=World();Body fixed=add(frozen,0,vec3(0,4,0),true)[0]
+run_steps(frozen,120)
+check(fixed.position==vec3(0,4,0) and fixed.inverse_mass==0,"Control placement is permanently static")
+World collision=World()
+Body fixed_sphere=add(collision,1,vec3(0,0.27,0),true)[0]
+Body ball=add(collision,1,vec3(0,2,0))[0]
+run_steps(collision,300)
+check(length(ball.position-fixed_sphere.position)>=0.535,"dynamic sphere collides with a fixed sphere")
+Body tilted=make_body(1,vec3(0.4,0.2,0.3),vec3(0,2,0),vec3(1,1,1))
+tilted.rotation=quat_from_euler((25,35,10))
+Body sphere=make_body(0,vec3(0.1,0,0),support(tilted,vec3(1,0,0))+vec3(0.11,0,0),vec3(1,1,1))
+check(not contact(tilted,sphere).hit,"oriented box narrow phase distinguishes separated bodies")
+tuple closest=segment_box(vec3(-2,0.3,0),vec3(2,0.3,0),vec3(0.5,0.2,0.5))
+check(abs(length(closest[0]-closest[1])-0.1)<0.00001,"capsule/box closest-segment distance is exact")
+Body wide=make_body(1,vec3(10,0.5,5),vec3(0,1,0),vec3(1,1,1),0.0)
+Body small=make_body(1,vec3(0.27,0.27,0.27),vec3(6,1.769,2),vec3(1,1,1))
+Contact face_hit=contact(small,wide)
+check(face_hit.hit and abs(face_hit.point.x-6)<0.000001 and abs(face_hit.point.z-2)<0.000001,"box face contact stays under the small body on a wide platform")
+Contact reversed_face=contact(wide,small)
+check(reversed_face.hit and length(reversed_face.point-face_hit.point)<0.000001 and dot(reversed_face.normal,face_hit.normal)< -0.999,"box face contact is independent of body order")
+wide.rotation=quat_from_euler(vec3(0,25,0));face_hit=contact(small,wide)
+check(face_hit.hit and abs(face_hit.point.x-6)<0.000001 and abs(face_hit.point.z-2)<0.000001,"clipped contacts remain centered on a rotated broad platform")
+
+check([prototypes(i,vec3(1,1,1))[0].friction for i in range(4)]==[0.65,0.35,0.55,0.05],"ordinary objects have dedicated friction, including a slippery mirror sphere")
+check(ground.friction==1.0,"the floor supports full friction without making objects static")
+check(make_body(0,vec3(1,0,0),vec3(0,0,0),vec3(1,1,1),1.0,-2.0).friction==0.0 and make_body(0,vec3(1,0,0),vec3(0,0,0),vec3(1,1,1),1.0,2.0).friction==1.0,"body creation bounds friction between zero and one")
+float slippery=contact_speed(1.0,0.02)
+check(slippery>0.95,"a full-friction body still slides on a slippery surface")
+check(abs(contact_speed(0.02,1.0)-slippery)<0.000001,"a slippery body also slides on a full-friction surface")
+check(abs(contact_speed(1.0,0.02,true)-slippery)<0.000001 and abs(contact_speed(0.02,1.0,true)-slippery)<0.000001,"reversing either contact keeps the same friction response")
+check(abs(contact_speed(1.0,1.0))<0.000001,"two full-friction surfaces resist small tangential motion")
+check(contact_speed(1.0,0.0)==1.0 and contact_speed(0.0,1.0)==1.0,"a frictionless surface on either side preserves sliding speed")
+Body grip=make_body(0,vec3(0.25,0,0),vec3(0,0,0),vec3(1,1,1),1.0,1.0)
+Body other=make_body(0,vec3(0.25,0,0),vec3(0,-0.5,0),vec3(1,1,1),1.0,0.02)
+grip.velocity=(1,-1,0)
+velocity_contact(grip,other,Contact(true,vec3(0,1,0),0.0,vec3(0,0,0)),STEP)
+check(abs(grip.velocity.x+other.velocity.x-1.0)<0.000001 and other.velocity.x>0.0,"friction transfers momentum to another dynamic object")
+check(grip.velocity.x>0.95,"full-friction dynamic objects can slide on low-friction dynamic objects")
+grip.velocity=(20,-1,0);grip.angular=(0,0,0);other.velocity=(0,0,0);other.angular=(0,0,0);other.friction=1.0
+velocity_contact(grip,other,Contact(true,vec3(0,1,0),0.0,vec3(0,0,0)),STEP)
+check(grip.velocity.x>19.0 and grip.inverse_mass>0.0,"one hundred percent friction is finite resistance rather than frozen physics")
+tuple slick_slide=slide_on(0.02);tuple rough_slide=slide_on(1.0)
+print("Sliding platform distances:",slick_slide[0],rough_slide[0],"speeds:",slick_slide[1],rough_slide[1])
+check(slick_slide[0]>rough_slide[0]+1.0,"a full-friction cube travels farther on a slippery platform in the real solver")
+check(slick_slide[1]>rough_slide[1]+1.0,"low-friction platforms retain more sliding velocity after a second")
+
+World ragdoll=World();list dummy=add(ragdoll,4,vec3(0,3,0))
+check(len(dummy)==13 and len(ragdoll.joints)==12,"dummy has thirteen rigid bodies and twelve actual joints")
+check(all([body.friction==1.0 and body.inverse_mass>0.0 for body in dummy]),"all thirteen dummy parts have one hundred percent friction and remain dynamic")
+check(contact_friction(dummy[0],prototypes(3,vec3(1,1,1))[0])==0.05 and contact_friction(prototypes(3,vec3(1,1,1))[0],dummy[0])==0.05,"dummy and mirror contacts use low friction in either order")
+for i in range(len(dummy)):(for j in range(i+1,len(dummy)):(
+    check(not contact(dummy[i],dummy[j]).hit or contact(dummy[i],dummy[j]).depth<0.0001,"initial dummy parts do not intersect "+string(i)+"/"+string(j))
+))
+run_steps(ragdoll,480)
+float error=0.0;float deepest=0.0
+for joint in ragdoll.joints:(error=max(error,length(joint.a.position+joint.a.rotation*joint.anchor_a-joint.b.position-joint.b.rotation*joint.anchor_b)))
+for body in dummy:(deepest=min(deepest,support(body,vec3(0,-1,0)).y))
+print("Ragdoll joint error:",error,"ground:",deepest)
+check(error<0.08,"ragdoll joints stay linked after falling and colliding")
+check(deepest> -0.018,"ragdoll stays above its collidable floor")
+check(dummy[0].position.y<1.0,"ragdoll falls under gravity rather than playing an animation")
+check(delete(ragdoll,dummy[4].id) and len(ragdoll.bodies)==0 and len(ragdoll.joints)==0,"right-click deletion of any limb removes the complete dummy")
+
+World scene=World();initialize(scene)
+check(len(scene.lights)==4 and all([light.inverse_mass>0 for light in scene.lights]),"four red green blue white light balls all have physics")
+check(all([light.friction==0.20 for light in scene.lights]),"all light balls have their own low friction")
+check(scene.lights[0].emission.x>scene.lights[0].emission.y*50 and scene.lights[1].emission.y>scene.lights[1].emission.x*50 and scene.lights[2].emission.z>scene.lights[2].emission.x*50,"light balls emit their dedicated RGB colors")
+check(scene.lights[3].emission.x==scene.lights[3].emission.y and scene.lights[3].emission.x==scene.lights[3].emission.z,"white ball emits equal RGB energy")
+check(all([body.inverse_mass>0 for body in scene.bodies]),"all startup props are dynamic")
+Body removed_light=scene.lights[0]
+check(delete(scene,removed_light.id) and not removed_light.active and len(scene.lights)==3,"aimed deletion removes the light ball and its lighting entry without replacing it")
+
+check(len(names)==9 and names[5]=="Red light sphere" and names[8]=="White light sphere","the scroll catalog includes four placeable light colors")
+for i in range(4):(
+    Game maker=Game();maker.camera=(0,2,0);maker.pitch=0.0
+    choose(maker,5+i)
+    Controls click=Controls();click.place=true;update(maker,click,0.0)
+    check(len(maker.world.bodies)==1 and len(maker.world.lights)==1,"left click creates and registers "+names[5+i])
+    Body lamp=maker.world.bodies[0]
+    check(lamp.tint==light_colors[i] and lamp.emission==light_colors[i]*32.0 and lamp.friction==0.20,"placed light keeps its dedicated color and friction "+string(i))
+    check(len(maker.preview)==1 and maker.preview[0].shape==0 and maker.preview[0].emission==lamp.emission,"placement preview matches the selected light sphere "+string(i))
+    run_steps(maker.world,4)
+    check(lamp.inverse_mass>0.0 and lamp.position.y<2.0,"placed light sphere falls with normal physics "+string(i))
+    click=Controls();click.erase=true;update(maker,click,0.0)
+    check(len(maker.world.bodies)==0 and len(maker.world.lights)==0 and not lamp.active,"right click deletes the placed light and unregisters its emission "+string(i))
+)
+Game fixed_light=Game();fixed_light.camera=(0,2,0);fixed_light.pitch=0.0;choose(fixed_light,8)
+Controls light_click=Controls();light_click.place=true;light_click.fixed=true;update(fixed_light,light_click,0.0)
+Body static_light=fixed_light.world.lights[0];vec3 light_position=static_light.position
+run_steps(fixed_light.world,60)
+check(static_light.inverse_mass==0.0 and static_light.position==light_position and static_light.emission==vec3(32,32,32),"Ctrl creates a stationary light that still emits")
+check(not clear(fixed_light.world,prototypes(5,vec3(1,1,1)),light_position),"light sphere placement rejects overlaps like ordinary objects")
+World many_lights=World()
+for i in range(MAX_BODIES):(add(many_lights,5+i%4,vec3(i*3,2,0),true))
+check(len(many_lights.bodies)==MAX_BODIES and len(many_lights.lights)==MAX_BODIES,"placed lights share the full scene capacity rather than a four-light limit")
+check(len(add(many_lights,5,vec3(0,6,0)))==0 and len(many_lights.lights)==MAX_BODIES,"a full scene rejects a light without leaving an orphan lighting entry")
+int freed_id=many_lights.lights[0].id
+delete(many_lights,freed_id);add(many_lights,8,vec3(0,6,0),true)
+check(len(many_lights.lights)==MAX_BODIES and all([light.id!=freed_id for light in many_lights.lights]),"light capacity is reusable after deletion without stale emitters")
+
+Game game=Game();game.camera=(0,2,0);game.pitch=0.0
+Controls input=Controls();input.forward=1.0;update(game,input,0.05)
+check(abs(game.camera.z-0.175)<0.00001,"W moves forward")
+input=Controls();input.strafe=1.0;update(game,input,0.05)
+check(abs(game.camera.x-0.175)<0.00001,"D strafes right")
+input=Controls();input.vertical=1.0;update(game,input,0.05)
+check(abs(game.camera.y-2.175)<0.00001,"Space flies upward")
+input.vertical=-1.0;update(game,input,0.05)
+check(abs(game.camera.y-2.0)<0.00001,"Shift flies downward")
+input=Controls();input.look=(100,40);update(game,input,0.0)
+check(game.yaw==0.25 and game.pitch==0.1,"relative mouse movement changes the camera")
+choose(game,1);check(game.selected==1,"wheel down advances the placement catalog")
+choose(game,-2);check(game.selected==len(names)-1,"wheel wraps backward without selecting existing objects")
+int selected_before=game.selected
+int default_samples=game.samples_per_frame
+check(default_samples>0,"sample quality starts with a positive configured default")
+input=Controls();input.alt=true;input.scroll=-1;update(game,input,0.0)
+check(game.samples_per_frame==default_samples+1 and game.selected==selected_before,"Alt plus wheel up increases samples without changing the placement type")
+input.scroll=1;update(game,input,0.0)
+check(game.samples_per_frame==default_samples and game.selected==selected_before,"Alt plus wheel down decreases samples without changing the placement type")
+input.scroll=default_samples+100;update(game,input,0.0)
+check(game.samples_per_frame==1,"sample quality stops at one when scrolling down past the minimum")
+update(game,input,0.0);check(game.samples_per_frame==1,"continued downward scrolling cannot select zero or negative samples")
+input.scroll=-10000;update(game,input,0.0)
+check(game.samples_per_frame==10001,"sample quality has no arbitrary upper cap")
+input.focused=false;input.scroll=-10;update(game,input,0.0)
+check(game.samples_per_frame==10001 and game.selected==selected_before,"unfocused input cannot change sample quality or the placement type")
+input.focused=true;input.alt=false;input.scroll=1;update(game,input,0.0)
+check(game.samples_per_frame==10001 and game.selected==0,"ordinary scrolling still changes placement type after releasing Alt")
+game.selected=0;game.preview=[];game.pitch=0.0;game.camera=(0,2,0)
+input=Controls();input.place=true;input.fixed=true;update(game,input,0.0)
+check(len(game.world.bodies)==1 and game.world.bodies[0].inverse_mass==0,"left click plus modifier chord creates a fixed body")
+input=Controls();input.erase=true;update(game,input,0.0)
+check(len(game.world.bodies)==0,"right click deletes the crosshair target rather than selecting or moving it")
+input.quit=true;update(game,input,0.0);check(game.quit,"Q quits without opening a menu")
+\ Control anchors only a dummy's torso; other types remain completely fixed.
+for selected in range(len(names)):(
+    Game anchored=Game();anchored.camera=(0,4,0);anchored.pitch=0.0;choose(anchored,selected)
+    Controls place_fixed=Controls();place_fixed.fixed=true;place_fixed.place=true
+    update(anchored,place_fixed,0.0)
+    int expected_parts=1
+    if selected==4:(expected_parts=13)
+    check(len(anchored.world.bodies)==expected_parts,"fixed placement creates the complete "+names[selected])
+    list positions=[body.position for body in anchored.world.bodies]
+    list rotations=[body.rotation for body in anchored.world.bodies]
+    if selected==4:(
+        check(anchored.world.bodies[0].inverse_mass==0.0 and anchored.world.bodies[0].inverse_inertia==vec3(0,0,0) and all([body.inverse_mass>0.0 for body in anchored.world.bodies[1:]]),"Control anchors only the torso and preserves twelve dynamic dummy parts")
+        anchored.world.bodies[4].velocity=(3,0,1);anchored.world.bodies[4].angular=(1,0,0)
+        update(anchored,Controls(),0.0);run_steps(anchored.world,180)
+        check(anchored.world.bodies[0].position==positions[0] and anchored.world.bodies[0].rotation==rotations[0],"dummy torso stays anchored after Control release and limb impulses")
+        check(any([length(anchored.world.bodies[i].position-positions[i])>0.02 for i in range(1,13)]),"anchored dummy limbs move under actual physics")
+        float anchor_error=0.0
+        for joint in anchored.world.joints:(anchor_error=max(anchor_error,length(joint.a.position+joint.a.rotation*joint.anchor_a-joint.b.position-joint.b.rotation*joint.anchor_b)))
+        print("Anchored ragdoll joint error:",anchor_error)
+        check(len(anchored.world.joints)==12 and anchor_error<0.08,"flopping limbs stay attached to the anchored torso through their joints")
+    )
+    else:(
+        check(all([body.inverse_mass==0.0 and body.inverse_inertia==vec3(0,0,0) for body in anchored.world.bodies]),"fixed placement disables translation and rotation for "+names[selected])
+        update(anchored,Controls(),0.0);run_steps(anchored.world,60)
+        check([body.position for body in anchored.world.bodies]==positions and [body.rotation for body in anchored.world.bodies]==rotations,"releasing Control leaves "+names[selected]+" fixed under physics")
+    )
+)
+check(abs(GRAVITY*METERS_PER_FOOT-9.80665)<0.000000000001,"standard Earth gravity uses the exact meters-to-feet conversion")
+World vacuum=World();vacuum.air_density=0.0
+Body high_fall=add(vacuum,1,vec3(0,1000,0))[0];run_steps(vacuum,180)
+check(abs(high_fall.velocity.y+GRAVITY*STEP*180)<0.000001 and high_fall.velocity.y< -90,"vacuum free fall follows Earth gravity beyond the former artificial speed limit")
+check(World().air_density==1.225,"default air density models sea-level air")
+Body drag_ball=make_body(0,vec3(0.27,0,0),vec3(0,5,0),vec3(1,1,1))
+check(abs(drag_area(drag_ball,vec3(1,0,0))-3.141592653589793*(0.27*METERS_PER_FOOT)**2)<0.000000000001,"sphere drag uses projected area in square meters")
+Body drag_box=make_body(1,vec3(1,0.5,0.25),vec3(0,5,0),vec3(1,1,1))
+float box_area=drag_area(drag_box,vec3(1,0,0));drag_box.rotation=quat_from_euler((0,90,0))
+check(abs(drag_area(drag_box,vec3(1,0,0))/box_area-4.0)<0.000001,"box drag responds to orientation and projected area")
+Body drag_capsule=make_body(2,vec3(0.1,0.4,0),vec3(0,5,0),vec3(1,1,1))
+check(drag_area(drag_capsule,vec3(1,0,0))>drag_area(drag_capsule,vec3(0,1,0))*5,"capsule side-on drag exceeds end-on drag")
+drag_ball.velocity=(20,0,0);drag_ball.angular=(1,2,3);apply_air_drag(drag_ball,1.225,1.0)
+check(drag_ball.velocity.x<20 and drag_ball.velocity.x>0 and drag_ball.velocity.y==0,"air drag reduces speed without reversing direction")
+check(length(drag_ball.angular)<sqrt(14.0),"air damps spin as well as linear motion")
+Body light_drag=make_body(0,vec3(0.27,0,0),vec3(0,5,0),vec3(1,1,1),0.1)
+Body heavy_drag=make_body(0,vec3(0.27,0,0),vec3(0,5,0),vec3(1,1,1),10.0)
+light_drag.velocity=(30,0,0);heavy_drag.velocity=(30,0,0)
+apply_air_drag(light_drag,1.225,1.0);apply_air_drag(heavy_drag,1.225,1.0)
+check(light_drag.velocity.x<heavy_drag.velocity.x,"lighter bodies lose speed faster under the same drag force")
+Body small_drag=make_body(0,vec3(0.1,0,0),vec3(0,5,0),vec3(1,1,1))
+Body large_drag=make_body(0,vec3(0.5,0,0),vec3(0,5,0),vec3(1,1,1))
+small_drag.velocity=(30,0,0);large_drag.velocity=(30,0,0)
+apply_air_drag(small_drag,1.225,1.0);apply_air_drag(large_drag,1.225,1.0)
+check(large_drag.velocity.x<small_drag.velocity.x,"larger projected area produces stronger air resistance")
+Body one_step=make_body(0,vec3(0.27,0,0),vec3(0,5,0),vec3(1,1,1))
+Body many_steps=make_body(0,vec3(0.27,0,0),vec3(0,5,0),vec3(1,1,1))
+one_step.velocity=(20,0,0);many_steps.velocity=(20,0,0);one_step.angular=(1,2,3);many_steps.angular=(1,2,3)
+apply_air_drag(one_step,1.225,1.0)
+for i in range(100):(apply_air_drag(many_steps,1.225,0.01))
+check(length(one_step.velocity-many_steps.velocity)<0.00000001 and length(one_step.angular-many_steps.angular)<0.00000001,"drag integration is independent of timestep subdivision for a sphere")
+one_step.velocity=(20,0,0);one_step.angular=(1,2,3);apply_air_drag(one_step,0.0,1.0)
+check(one_step.velocity==vec3(20,0,0) and one_step.angular==vec3(1,2,3),"vacuum disables linear and angular air resistance")
+one_step.drag_coefficient=0.0;one_step.angular_drag=0.0;apply_air_drag(one_step,1.225,1.0)
+check(one_step.velocity==vec3(20,0,0) and one_step.angular==vec3(1,2,3),"per-body drag coefficients can disable air resistance")
+large_drag.velocity=(1000000,0,0);apply_air_drag(large_drag,1.225,100.0)
+check(large_drag.velocity.x>0 and large_drag.velocity.x<1000000,"large velocities and timesteps remain stable without a hard speed cap")
+World rest=World();add(rest,0,vec3(0,0.27,0),true)
+Body resting=add(rest,1,vec3(0,0.8101,0))[0];resting.restitution=0.0;run_steps(rest,180)
+check(resting.sleeping,"a body resting on a static platform can sleep")
+vec3 rest_position=resting.position;run_steps(rest,120)
+check(resting.sleeping and resting.position==rest_position,"static contact cannot spuriously wake a sleeping body")
+Body impact=add(rest,1,resting.position+vec3(0,0.53,0))[0];impact.velocity=(0,-4,0);step(rest,STEP)
+check(not resting.sleeping,"a dynamic impact wakes a sleeping body")
+World sleep_rig=World();list sleep_parts=add(sleep_rig,4,vec3(0,3,0),true)
+for body in sleep_parts[1:]:(body.sleeping=true;body.quiet=1.0)
+list sleep_positions=[body.position for body in sleep_parts]
+run_steps(sleep_rig,30)
+check(all([body.sleeping for body in sleep_parts[1:]]) and [body.position for body in sleep_parts]==sleep_positions,"an anchored resting rig skips joint work without drifting or freezing its dynamic mass")
+impact=add(sleep_rig,1,sleep_parts[4].position+vec3(0.25,0,0))[0];impact.velocity=(-4,0,0);step(sleep_rig,STEP)
+check(all([not body.sleeping for body in sleep_parts[1:]]) and sleep_parts[0].position==sleep_positions[0],"impact wakes the complete ragdoll immediately while preserving the fixed torso")
+\ Capsules should fall over naturally, support both ends on the floor and roll.
+vec3 capsule_up=(0,1,0)
+Body capsule_preview=prototypes(2,vec3(1,1,1))[0]
+check(capsule_preview.rotation==quat(0,0,0,1) and capsule_preview.rotation*capsule_up==capsule_up,"capsule preview is exactly upright")
+Game capsule_game=Game();capsule_game.camera=(0,2,0);capsule_game.pitch=0.0;choose(capsule_game,2);refresh_preview(capsule_game)
+quat preview_rotation=capsule_game.preview[0].rotation
+Controls capsule_click=Controls();capsule_click.place=true;update(capsule_game,capsule_click,0.0)
+check(len(capsule_game.world.bodies)==1 and capsule_game.world.bodies[0].rotation==preview_rotation,"placed capsule matches its checked outline orientation")
+run_steps(capsule_game.world,360)
+Body settled_capsule=capsule_game.world.bodies[0]
+check(abs((settled_capsule.rotation*capsule_up).y-1.0)<0.000001 and abs(settled_capsule.position.y-0.4201)<0.003 and support(settled_capsule,-capsule_up).y>=-0.00000001,"a symmetric upright capsule drop remains upright without penetrating the floor")
+World capsule_fixed_world=World();Body capsule_fixed=add(capsule_fixed_world,2,vec3(0,2,0),true)[0]
+quat fixed_rotation=capsule_fixed.rotation;run_steps(capsule_fixed_world,360)
+check(capsule_fixed.position==vec3(0,2,0) and capsule_fixed.rotation==fixed_rotation,"Control placement still leaves the capsule fixed in its preview pose")
+World capsule_flat_world=World();Body capsule_flat=add(capsule_flat_world,2,vec3(0,0.1401,0))[0]
+capsule_flat.rotation=quat_from_euler((0,0,90));quat flat_rotation=capsule_flat.rotation
+list capsule_hits=ground_contacts(capsule_flat)
+check(len(capsule_hits)==2 and abs(length(capsule_hits[0].point-capsule_hits[1].point)-0.56)<0.000001,"a horizontal capsule rests on both rounded ends")
+run_steps(capsule_flat_world,60)
+check(abs(dot(capsule_flat.rotation*capsule_up,flat_rotation*capsule_up)-1.0)<0.00000001 and length(capsule_flat.angular)<0.000001,"a flat capsule has no spurious one-end rocking torque")
+World capsule_roll_world=World();Body capsule_roll=add(capsule_roll_world,2,vec3(0,0.1401,0))[0]
+capsule_roll.rotation=flat_rotation;capsule_roll.angular=(2,0,0);run_steps(capsule_roll_world,60)
+check(abs(capsule_roll.position.z)>0.08 and support(capsule_roll,-capsule_up).y>=0.0,"a capsule with spin rolls across the floor rather than locking upright")
+for tilt in [1,20,45]:(
+    World capsule_tilt_world=World();Body capsule_tilt=add(capsule_tilt_world,2,vec3(0,2,0))[0]
+    capsule_tilt.rotation=quat_from_euler((0,0,tilt));run_steps(capsule_tilt_world,360)
+    check(abs((capsule_tilt.rotation*capsule_up).y)<0.01 and support(capsule_tilt,-capsule_up).y>=0.0,"a capsule dropped at "+string(tilt)+" degrees settles horizontally without floor penetration")
+)
+World quiet_scene=World();initialize(quiet_scene);run_steps(quiet_scene,1200)
+check(all([body.sleeping for body in quiet_scene.bodies]),"the complete startup scene reaches rest instead of resetting ragdoll sleep timers forever")
+int quiet_revision=quiet_scene.revision;list quiet_poses=[(body.position,body.rotation) for body in quiet_scene.bodies]
+run_steps(quiet_scene,120)
+check(quiet_scene.revision==quiet_revision and [(body.position,body.rotation) for body in quiet_scene.bodies]==quiet_poses,"resting physics leaves render history valid with unchanged geometry and revision")
+
+\ Resting contact regressions: aligned towers must keep their height and sleep.
+for yaw in [0,30]:(for count in [2,4,8]:(
+    World tower=World();tower.air_density=0.0
+    for i in range(count):(
+        Body block=add(tower,0,vec3(0,0.27+i*0.54,0))[0]
+        block.rotation=quat_from_euler((0,yaw,0))
+    )
+    run_steps(tower,180)
+    check(all([body.sleeping for body in tower.bodies]),"flush "+string(count)+"-cube tower sleeps at yaw "+string(yaw))
+    check(max(*[abs(body.position.y-(0.27+i*0.54)) for i,body in enumerate(tower.bodies)])<0.002,"flush tower preserves its stacked height")
+    check(max(*[length(body.velocity)+length(body.angular) for body in tower.bodies])==0.0,"flush tower has no artificial bounce or rocking")
+    list poses=[(body.position,body.rotation) for body in tower.bodies];int revision=tower.revision
+    run_steps(tower,120)
+    check([(body.position,body.rotation) for body in tower.bodies]==poses and tower.revision==revision,"sleeping stack keeps poses and rendering history stable")
+))
+World supported=World()
+Body shelf=add(supported,0,vec3(0,3,0),true)[0]
+for i in range(3):(add(supported,0,vec3(0,3.54+i*0.54,0)))
+run_steps(supported,180)
+check(all([body.sleeping for body in supported.bodies[1:]]),"cubes sleep on a fixed elevated support")
+delete(supported,shelf.id)
+check(all([not body.sleeping for body in supported.bodies]),"removing support wakes the whole contact island")
+float supported_height=supported.bodies[0].position.y;run_steps(supported,15)
+check(supported.bodies[0].position.y<supported_height-0.2,"an unsupported sleeping stack falls again")
+World gentle=World();Body soft=add(gentle,1,vec3(0,0.2701,0))[0]
+soft.velocity=(0,-0.25,0);soft.restitution=1.0;step(gentle,STEP)
+check(abs(soft.velocity.y)<0.01,"low-speed resting contacts suppress restitution")
+World bounce=World();Body spring=add(bounce,1,vec3(0,0.2701,0))[0]
+spring.velocity=(0,-5,0);spring.restitution=0.8;step(bounce,STEP)
+check(spring.velocity.y>3.0,"real high-speed impacts still bounce")
+for tick in [1.0/120.0,1.0/60.0,1.0/30.0]:(
+    World falling_world=World();falling_world.air_density=0.0
+    Body drop=add(falling_world,0,vec3(0,20,0))[0]
+    for i in range(int(round(0.5/tick))):(step(falling_world,tick))
+    check(abs(drop.position.y-(20-0.5*GRAVITY*0.5**2))<0.0000001,"free-fall displacement matches Earth gravity at dt "+string(tick))
+    check(abs(drop.velocity.y+GRAVITY*0.5)<0.0000001,"free-fall speed is independent of time-step rate")
+)
+for rate in [12,30,60,120]:(
+    Game timed=Game();timed.world.air_density=0.0;timed.camera=(0,20,-20)
+    Body drop=add(timed.world,0,vec3(0,20,0))[0]
+    Controls idle=Controls();idle.focused=false
+    for frame in range(rate):(update(timed,idle,1.0/rate))
+    check(abs(drop.position.y-(20-0.5*GRAVITY))<0.001,"simulation follows a real second at "+string(rate)+" rendering FPS")
+)
+
+\ Compare the ray's broad phase against the complete signed-distance field.
+def reference_cast(World world,vec3 origin,vec3 direction,float limit)->Hit:(
+    direction=safe_normal(direction,vec3(0,0,1));float t=0.0
+    for iteration in range(220):(
+        vec3 point=origin+direction*t;tuple sample=scene_distance(world,point)
+        if abs(sample[0])<0.0007:(return Hit(true,point,vec3(0,1,0),t,sample[1]))
+        t+=max(abs(sample[0])*0.9,0.0005)
+        if t>limit:(break)
+    )
+    return Hit(false,origin+direction*limit,vec3(0,1,0),limit,-1)
+)
+World ray_world=World()
+for i in range(9):(
+    Body item=add(ray_world,i%3,vec3((i%3-1)*1.4,0.6+(i//3)*0.25,1.2+(i//3)*1.6),true)[0]
+    item.rotation=quat_from_euler((i*7,i*11,i*3))
+)
+for i in range(32):(
+    vec3 eye=vec3((i%4-1.5)*0.7,0.9+(i//4)*0.16,-1.0)
+    vec3 direction=safe_normal(vec3((i%5-2)*0.17,-0.22,1))
+    float limit=2.0
+    if i%2==1:(limit=80.0)
+    Hit result=cast(ray_world,eye,direction,limit);Hit expected=reference_cast(ray_world,eye,direction,limit)
+    check(result.found==expected.found and result.id==expected.id and abs(result.distance-expected.distance)<0.003,"culled raymarch matches the full field for ray "+string(i))
+)
+check(len(ray_candidates(ray_world,vec3(20,1,0),vec3(0,0,1),2.0))==0,"off-ray objects do not enter placement raymarching")
+Game far_delete=Game();far_delete.camera=(0,1,0);far_delete.pitch=0.0
+add(far_delete.world,0,vec3(0,1,6),true)
+refresh_preview(far_delete)
+check(far_delete.preview_position==vec3(0,1,2) and far_delete.valid,"a distant body cannot move the two-foot preview")
+Controls erase_far=Controls();erase_far.erase=true
+update(far_delete,erase_far,0.0)
+check(len(far_delete.world.bodies)==0,"right click retains aimed deletion beyond the preview range")
+Game refreshed=Game();refreshed.camera=(0,1,0);refreshed.pitch=0.0
+refresh_preview(refreshed);vec3 before_preview=refreshed.preview_position
+Controls walk=Controls();walk.forward=1.0
+update(refreshed,walk,STEP)
+check(refreshed.preview_position.z>before_preview.z and refreshed.valid,"WASD refreshes the cached preview at its new camera position")
+add(refreshed.world,0,refreshed.preview_position,true);update(refreshed,Controls(),0.0)
+check(clear(refreshed.world,refreshed.preview,refreshed.preview_position)==refreshed.valid,"scene edits invalidate cached placement collision checks")
+choose(refreshed,4);refresh_preview(refreshed)
+check(len(refreshed.preview)==13,"catalog changes rebuild the complete cached dummy preview")
+print("raygame:",passed,"checks passed")

@@ -1,4 +1,4 @@
-/# A single-file Oak program. Run: oakscript examples/hello.oak #/
+\# A single-file Oak program. Run: oakscript examples/hello.oak #\
 def add(a, b):(
     return a + b
 )

@@ -1,0 +1,4 @@
+{
+  "aliases": {"arithmetic": "vendor/renamed-math.oak"},
+  "libpath": ["shared"]
+}

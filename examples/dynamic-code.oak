@@ -1,0 +1,25 @@
+\ Dynamic expressions and statements share the caller's lexical bindings.
+int x=4
+int y=3
+println("eval:",eval("x**y"))
+exec("x+=1; created=7")
+assert(x==5 and created==7)
+println("evxec:",evxec("x+=2; x*y"))
+assert(x==7 and evxec("x+=1") is null and x==8)
+assert(evxec("") is null and evxec("return") is null)
+
+def local(int value):(
+    exec("value+=3; added=2")
+    return evxec("value+added")
+)
+assert(local(4)==9)
+
+exec("def generated(int n=2):(return x+n)")
+assert(generated()==10 and generated(n=4)==12)
+assert(eval("[n*x for n in range(3)]")==[0,8,16])
+
+bool caught=false
+try:(eval("x=10"))
+except SyntaxError as error:(caught=true;println(error.name,error.message))
+assert(caught and x==8)
+println("Dynamic code checks passed.")

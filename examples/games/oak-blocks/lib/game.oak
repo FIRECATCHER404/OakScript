@@ -1,0 +1,88 @@
+from "world.oak" import World;generate;HEIGHT
+from "input.oak" import Controls
+from "physics.oak" import Player;step;respawn;occupied;eye_position;direction
+from "raycast.oak" import Hit;cast;place;break_block
+
+type Game:(
+    World world = World()
+    Player player = Player()
+    Hit target = Hit()
+    bool active = false
+    bool started = false
+    bool quit = false
+    int selected = 1
+    float accumulator = 0.0
+    float cooldown = 0.0
+    float notice_timer = 0.0
+    float elapsed = 0.0
+    float fps = 60.0
+    string notice = ""
+)
+
+def safe_respawn(Game game):(
+    respawn(game.player)
+    \# Existing player builds are retained when R returns to the clearing. #\
+    while occupied(game.world,game.player.x,game.player.y,game.player.z,game.player.height):(
+        game.player.y += 1.0
+    )
+)
+
+def initialize(Game game):(
+    generate(game.world)
+    safe_respawn(game)
+    game.target = cast(game.world,eye_position(game.player),direction(game.player),6.0)
+)
+
+def update(Game game, Controls controls, float frame_dt):(
+    if not controls.focused:(game.active = false)
+    if controls.pause and game.started:(game.active = not game.active and controls.focused)
+    if not game.active:(
+        game.accumulator = 0.0
+        if controls.quit:(game.quit = true)
+        if controls.start and controls.focused:(game.active = true; game.started = true)
+        return
+    )
+    if controls.fly_pressed:(
+        game.player.flying = not game.player.flying
+        game.player.vy = 0.0
+        game.player.jump_buffer = 0.0
+        game.player.coyote = 0.0
+        game.notice = "Flight enabled"
+        if not game.player.flying:(game.notice = "Walking enabled")
+        game.notice_timer = 2.0
+    )
+    if controls.respawn:(safe_respawn(game))
+    game.player.yaw = (game.player.yaw+controls.look.x*0.12) % 360.0
+    game.player.pitch = clamp(game.player.pitch+controls.look.y*0.12,-88.0,88.0)
+    if controls.selection > 0:(game.selected = controls.selection)
+    if controls.scroll != 0:(game.selected = ((game.selected-1-controls.scroll)%8+8)%8+1)
+    if controls.jump_pressed:(game.player.jump_buffer = 0.14)
+    float dt = clamp(frame_dt,0.0,0.10)
+    game.accumulator += dt
+    game.elapsed += dt
+    game.cooldown = max(0.0,game.cooldown-dt)
+    game.notice_timer = max(0.0,game.notice_timer-dt)
+    if frame_dt > 0.001:(game.fps += (1.0/frame_dt-game.fps)*0.05)
+    while game.accumulator >= 1.0/120.0:(
+        step(game.world,game.player,controls,1.0/120.0)
+        game.accumulator -= 1.0/120.0
+    )
+    game.target = cast(game.world,eye_position(game.player),direction(game.player),6.0)
+    if controls.break_pressed or controls.place_pressed:(game.cooldown = 0.0)
+    if game.cooldown <= 0:(
+        bool changed = false
+        if controls.break_pressed or controls.break_down:(
+            changed = break_block(game.world,game.target)
+            if not changed and game.target.found:(game.notice = "The foundation is protected"; game.notice_timer = 1.5)
+        )
+        elif controls.place_pressed or controls.place_down:(
+            changed = place(game.world,game.player,game.target,game.selected)
+            if not changed and game.target.found:(game.notice = "No room to place here"; game.notice_timer = 1.5)
+        )
+        if changed:(
+            game.cooldown = 0.18
+            game.target = cast(game.world,eye_position(game.player),direction(game.player),6.0)
+        )
+    )
+)
+

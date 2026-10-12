@@ -1,0 +1,46 @@
+string LEFT_PAREN = " ( "[1]
+string RIGHT_PAREN = " ) "[1]
+string LEFT_BRACKET = " [ "[1]
+string RIGHT_BRACKET = " ] "[1]
+string COMMA = " , "[1]
+string PERIOD = " . "[1]
+def whitespace(string c) -> bool:(return c == " " or c == "\t" or c == "\r" or c == "\n")
+def dimensions(string text, int count) -> list:(
+    int cursor = 0
+    while cursor < len(text) and whitespace(text[cursor]):(cursor += 1)
+    assert(cursor < len(text) and (text[cursor] == LEFT_PAREN or text[cursor] == LEFT_BRACKET),"Dimensions must be a quoted tuple or list, such as '(800,600)' or '[800,600]'.")
+    string closer = RIGHT_PAREN
+    if text[cursor] == LEFT_BRACKET:(closer = RIGHT_BRACKET)
+    cursor += 1
+    list result = []
+    while true:(
+        while cursor < len(text) and whitespace(text[cursor]):(cursor += 1)
+        if cursor < len(text) and text[cursor] == closer:(cursor += 1; break)
+        assert(len(result) < count,"Too many dimensions; expected "+string(count)+PERIOD)
+        int value = 0
+        int digits = 0
+        while cursor < len(text) and text[cursor] >= "0" and text[cursor] <= "9":(
+            value = value*10+int(text[cursor]); cursor += 1; digits += 1
+            assert(value <= 16384,"Each dimension must be in 1..16384.")
+        )
+        assert(digits > 0 and value > 0,"Dimensions must be positive integers.")
+        append(result,value)
+        while cursor < len(text) and whitespace(text[cursor]):(cursor += 1)
+        assert(cursor < len(text),"Unclosed dimension tuple/list.")
+        if text[cursor] == closer:(cursor += 1; break)
+        assert(text[cursor] == COMMA,"Separate dimensions with commas.")
+        cursor += 1
+    )
+    while cursor < len(text) and whitespace(text[cursor]):(cursor += 1)
+    assert(cursor == len(text),"Unexpected text after dimensions.")
+    assert(len(result) == count,"Expected "+string(count)+" dimensions.")
+    return result
+)
+def progress_bar(float fraction, vec2 size):(
+    float width = max(1,size.x-48)
+    float y = size.y*0.5-6
+    fill_poly([(24,y),(24+width,y),(24+width,y+12),(24,y+12)],(38,50,68))
+    if fraction > 0:(
+        fill_poly([(24,y),(24+width*fraction,y),(24+width*fraction,y+12),(24,y+12)],(90,205,180))
+    )
+)

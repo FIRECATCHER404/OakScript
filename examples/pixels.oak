@@ -1,0 +1,11 @@
+\ Draw once with RGB tuples; the image stays visible until the window closes.
+window "OakScript | Single pixels" 320 240
+for y in range(240):(
+    for x in range(320):(
+        set_pixel(x,y,((x^y)&255,(x*3)&255,(y*2)&255))
+    )
+)
+
+def draw():(
+    if key_pressed("Escape"):(close_window())
+)

@@ -1,5 +1,5 @@
 from palette import background;accent
-/# This path resolves beside drawing.oak, even when called from another file. #/
+\# This path resolves beside drawing.oak, even when called from another file. #\
 texture checker = load_texture("../assets/checker.png")
 checker.filter = <nearest>
 
