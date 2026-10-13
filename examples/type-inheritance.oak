@@ -1,0 +1,92 @@
+type Base:(
+    label="base"
+    def name(self)->string: (return "Base")
+)
+type Left(Base):(
+    def name(self)->string: (return "Left/"+super().name())
+)
+type Right from Base:(
+    def name(self)->string: (return "Right/"+super().name())
+)
+type Diamond from Left,Right:(
+    def name(self)->string: (return "Diamond/"+super().name())
+)
+item=Diamond()
+assert(item.name()=="Diamond/Left/Right/Base")
+assert(isinstance(item,(Left,Right)) and issubclass(Diamond,Base))
+assert(issubclass(Diamond,object))
+assert(Diamond.@bases==(Left,Right))
+assert(Diamond.@mro==(Diamond,Left,Right,Base,object))
+assert(item.@class is Diamond and Diamond.@name=="Diamond")
+Base.label="changed"
+assert(item.label=="changed")
+item.label="local"
+assert(Base().label=="changed" and item.label=="local")
+del item.label
+assert(item.label=="changed")
+method=item.name
+assert(method()=="Diamond/Left/Right/Base")
+
+type Managed:(
+    "A type docstring."
+    def @new(cls,value): (return object.@new(cls))
+    def @init(self,value): (self.value=value)
+    def @getattr(self,name): (return "missing:"+name)
+    def @setattr(self,name,value): (object.@setattr(self,name,value))
+)
+managed=Managed(7)
+assert(managed.value==7 and managed.unknown=="missing:unknown")
+assert(Managed.@doc=="A type docstring.")
+setattr(managed,"extra",8)
+assert(getattr(managed,"extra")==8 and hasattr(managed,"extra"))
+delattr(managed,"extra")
+assert(vars(managed)["value"]==7)
+
+list callbacks=[]
+type Descriptor:(
+    string name=""
+    def @set_name(self,owner,name): (self.name=name;append(callbacks,name))
+    def @get(self,instance,owner): (
+        if instance is null: (return self)
+        return object_getattr(instance,"stored")*2
+    )
+    def @set(self,instance,value): (object_setattr(instance,"stored",value//2))
+    def @delete(self,instance): (object_delattr(instance,"stored"))
+)
+type WithDescriptor:(
+    field=Descriptor()
+    def @init(self): (self.stored=3)
+)
+d=WithDescriptor()
+assert(d.field==6 and callbacks==["field"])
+d.field=12
+assert(d.stored==6 and d.field==12)
+del d.field
+assert(not hasattr(d,"stored"))
+
+type Registry:(
+    def @init_subclass(cls): (append(callbacks,cls.@name))
+)
+type Registered from Registry:()
+assert(callbacks==["field","Registered"])
+
+type GeneratorBase:(
+    def values(self): (yield 1;yield 2)
+)
+type GeneratorChild from GeneratorBase:(
+    def values(self): (
+        for value in super().values(): (yield value+1)
+    )
+)
+assert(list(GeneratorChild().values())==[2,3])
+print("Type inheritance passed.")
+def local_types():(
+    type Local:(
+        int value=7
+        def copy(self,Local other)->Local:(return other)
+    )
+    def keep(Local item)->Local:(return item)
+    Local typed=(9,)
+    assert(keep(typed).copy(typed) is typed and typed.value==9)
+)
+local_types()

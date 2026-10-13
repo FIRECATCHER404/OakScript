@@ -1,0 +1,37 @@
+type Data:(
+    int value=1
+    def @init(self,int value=1): (self.value=value)
+    def add(self,amount): (self.value+=amount;return self.value)
+)
+data=Data(5)
+dict attributes=vars(data)
+attributes["value"]=8
+assert(data.value==8)
+data.extra=7
+assert(attributes["extra"]==7 and len(attributes)==2)
+attributes["label"]="example"
+assert(data.label=="example")
+del attributes["label"]
+assert(not hasattr(data,"label"))
+dict namespace=vars(Data)
+Data.category="data"
+assert(namespace["category"]=="data")
+int rejected=0
+try:(namespace["category"]="changed")
+except TypeError:(rejected+=1)
+try:(attributes["value"]="wrong")
+except TypeError:(rejected+=1)
+assert(rejected==2)
+assert(type(data) is Data and type(Data) is type)
+assert(isinstance(4,int) and isinstance(true,int) and issubclass(bool,int))
+
+def initialize(self,value): (self.value=value)
+def show(self): (return "Dynamic({})".format(self.value))
+def plus(self,amount): (return self.value+amount)
+Dynamic=type("Dynamic",(Data,),{"@init":initialize,"@repr":show,"plus":plus,"category":"dynamic"})
+dynamic=Dynamic(9)
+assert(dynamic.plus(3)==12 and dynamic.add(1)==10)
+assert(repr(dynamic)=="Dynamic(10)" and isinstance(dynamic,Data))
+assert(dynamic.category=="dynamic")
+assert("@init" in dir(dynamic))
+print("Type reflection passed.")

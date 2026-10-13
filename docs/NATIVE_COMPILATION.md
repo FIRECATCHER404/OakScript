@@ -1,6 +1,6 @@
 # Native compilation
 
-OakScript 0.8.2 compiles CPU, 2D/3D graphics, audio and GPU compute programs to
+OakScript 0.9.0 compiles CPU, 2D/3D graphics, audio and GPU compute programs to
 standalone Windows x64 machine code.
 
 ```powershell
@@ -67,8 +67,16 @@ The distribution includes GCC, MinGW and vendored dependency license notices.
   names without invoking attribute getters; ordinary attributes return `[]` and
   unknown attributes raise `TypeError`. See [attribute options](../examples/attribute-options.oak).
   Records can store functions with per-instance lexical state; see
-  [record functions](../examples/record-functions.oak). Automatic method/self
-  binding and Python-style class inheritance are not implemented.
+  [record functions](../examples/record-functions.oak). User-defined types also
+  support bound instance methods, static/class methods, properties, custom
+  `def @init`/`def @new`, dynamic attributes, nested types, C3 multiple inheritance
+  and `super()`. Operator, conversion, call, hash, iterator, item/slice, context
+  and descriptor hooks use the same `@name` syntax in both backends.
+  Reflection includes `type`, dynamic `type(name,bases,dict)`, `vars`, `repr`,
+  `hash`, attribute helpers and instance/subclass checks. See
+  [type classes](../examples/type-classes.oak), [protocols](../examples/type-protocols.oak),
+  [inheritance](../examples/type-inheritance.oak), [reflection](../examples/type-reflection.oak),
+  and [conversions](../examples/type-conversions.oak).
 - First-class, recursive, nested functions; retained lexical closures; lambdas;
   decorators; defaults evaluated once; keyword-only parameters; typed `*args`
   and `**kwargs`; positional and keyword expansion.
@@ -86,7 +94,8 @@ The distribution includes GCC, MinGW and vendored dependency license notices.
   `with`. Cleanup handles return, break, continue and generator close.
 - `dir` for attributes/fields/methods and module exports. `.format` supports
   automatic/numeric fields, named fields and escaped braces. `%s`/`%%` accepts
-  single values or tuples. Advanced format specifications remain unsupported.
+  single values or tuples. Custom object `@format` specifications are supported; advanced built-in format
+  specifications remain unsupported.
 - Checked imports and aliases, live module values, shared imported bindings,
   initialization once, `__init__`/`__dispose__` hooks and generator cleanup.
 - Only the entry file's own `__main__` runs automatically, after top-level code.
@@ -218,3 +227,7 @@ Optional built-in CUDA 3D rendering is compiled directly into native programs.
 Select `use_cuda(true)` before creating windows; the same mesh/model/polygon APIs
 are used. Only an NVIDIA CUDA 12.8-capable display driver is needed at runtime;
 CUDA compiler packages are not embedded. See [CUDA rendering](CUDA_RENDERING.md).
+
+Class limits: no custom metaclasses, built-in subclasses, `@slots`, automatic
+finalizers/weak references, async methods or class-pattern matching. The native
+backend still rejects bigint/decimal/complex and dynamic eval/exec/evxec.

@@ -1,0 +1,33 @@
+type Counter:(
+    int value=0
+    category="counter"
+    def @init(self,int value=0): (self.value=value)
+    def add(self,int amount=1)->int: (self.value+=amount;return self.value)
+    def @repr(self)->string: (return "Counter({})".format(self.value))
+    @staticmethod
+    def twice(n): (return n*2)
+    @classmethod
+    def make(cls,n): (return cls(n))
+    @property
+    def doubled(self): (return self.value*2)
+    @doubled.setter
+    def doubled(self,n): (self.value=n//2)
+)
+type Child from Counter:(
+    def add(self,int amount=1)->int: (return super().add(amount)+100)
+)
+counter=Counter(value=2)
+other=Counter()
+assert(counter.add()==3 and other.value==0)
+assert(repr(counter)=="Counter(3)")
+assert(Counter.twice(4)==8 and counter.twice(5)==10)
+assert(Child.make(7).value==7)
+assert(counter.doubled==6)
+counter.doubled=12
+assert(counter.value==6)
+child=Child(1)
+assert(child.add(2)==103 and child.value==3)
+assert(isinstance(child,Counter) and issubclass(Child,Counter))
+assert("add" in dir(child) and "@init" in dir(child))
+assert(opt_dir(child,"add")==[])
+print(repr(counter),child.value)

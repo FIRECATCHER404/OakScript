@@ -1,0 +1,86 @@
+\ Special methods use @ names; ordinary methods keep ordinary names.
+type Number:(
+    int value=0
+    def @init(self,int value=0): (self.value=value)
+    def @repr(self)->string: (return "Number({})".format(self.value))
+    def @str(self)->string: (return "n={}".format(self.value))
+    def @format(self,string spec)->string: (return spec+":"+string(self.value))
+    def @add(self,other): (
+        if isinstance(other,Number): (return Number(self.value+other.value))
+        return NotImplemented
+    )
+    def @radd(self,other): (return Number(other+self.value))
+    def @iadd(self,other): (self.value+=other.value;return self)
+    def @and(self,other): (return Number(self.value&other.value))
+    def @lthan(self,other): (return self.value<other.value)
+    def @eq(self,other): (
+        if isinstance(other,Number): (return self.value==other.value)
+        return NotImplemented
+    )
+    def @hash(self)->int: (return self.value)
+    def @bool(self)->bool: (return self.value!=0)
+    def @neg(self): (return Number(0-self.value))
+    def @pos(self): (return self)
+    def @invert(self): (return Number(~self.value))
+    def @int(self)->int: (return self.value)
+    def @float(self)->float: (return float(self.value))
+    def @abs(self): (return Number(abs(self.value)))
+    def @round(self)->int: (return self.value)
+    def @call(self,int add=0)->int: (return self.value+add)
+)
+a=Number(6)
+b=Number(3)
+assert((a+b).value==9 and (10+a).value==16)
+assert((a&b).value==2 and b<a and b!=a)
+assert(a==Number(6) and a!=9)
+assert(repr(a)=="Number(6)" and string(a)=="n=6")
+assert("{:hex}".format(a)=="hex:6")
+alias=a
+a+=b
+assert(a is alias and a.value==9)
+assert((-b).value==-3 and (+b) is b and (~b).value==-4)
+assert(int(b)==3 and float(b)==3 and abs(-b).value==3 and round(b)==3)
+assert(b(add=4)==7 and bool(b) and not Number(0))
+dict lookup={a:"nine"}
+assert(lookup[Number(9)]=="nine" and hash(a)==9)
+assert("@add" in dir(a) and opt_dir(a,"@and")==[])
+
+type Bag:(
+    list values=[]
+    def @init(self,values=()): (self.values=list(values))
+    def @len(self)->int: (return len(self.values))
+    def @getitem(self,key): (
+        if type_of(key)=="slice": (return self.values[key.start:key.stop:key.step])
+        return self.values[key]
+    )
+    def @setitem(self,key,value): (self.values[key]=value)
+    def @delitem(self,key): (del self.values[key])
+    def @contains(self,value)->bool: (return value in self.values)
+    def @iter(self): (return iter(self.values))
+)
+bag=Bag([1,2,3,4])
+assert(len(bag)==4 and bool(bag) and bag[1]==2 and bag[::-1]==[4,3,2,1])
+bag[0]=9
+del bag[1]
+assert(list(bag)==[9,3,4] and 9 in bag and 2 not in bag)
+
+type CounterIterator:(
+    int value=0
+    def @iter(self): (return self)
+    def @next(self): (
+        if self.value>=3: (raise StopIteration())
+        self.value+=1
+        return self.value
+    )
+)
+it=CounterIterator()
+assert(next(it)==1 and list(it)==[2,3] and next(it,"done")=="done")
+
+list visits=[]
+type Resource:(
+    def @enter(self): (append(visits,"enter");return self)
+    def @exit(self,kind,error,trace): (append(visits,"exit");return false)
+)
+with Resource() as resource: (append(visits,"body"))
+assert(visits==["enter","body","exit"])
+print("Type protocols passed.")

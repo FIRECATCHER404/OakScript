@@ -1,0 +1,87 @@
+\ Special conversion, reversal, subscription and error behavior.
+type IndexValue:(def @index(self):(return 1))
+index=IndexValue()
+assert([10,20,30][index]==20 and [10,20,30][index:]==[20,30])
+assert(int(index)==1 and list(range(index,3))==[1,2])
+
+type NumberHooks:(
+    def @floor(self):(return 4)
+    def @ceil(self):(return 5)
+    def @bytes(self):(return bytes([65,66]))
+    def @reversed(self):(return iter([3,2,1]))
+    def @call(self,n):(return n+1)
+)
+number=NumberHooks()
+assert(floor(number)==4 and ceil(number)==5 and bytes(number)==bytes([65,66]))
+assert(list(reversed(number))==[3,2,1] and list(map(number,[1,2]))==[2,3])
+
+type Generic:(def @class_getitem(cls,item):(return (cls,item)))
+assert(Generic[int]==(Generic,int))
+
+type InitCopy:(
+    any value=null
+    def @init(self,value):(self.value=value)
+)
+original=InitCopy(7)
+copy=InitCopy(original)
+assert(copy is not original and copy.value is original)
+type Factory:(
+    def @new(cls):(return 42)
+    def @init(self):(assert(false,"@init must be skipped"))
+)
+assert(Factory()==42)
+type ConstructorArgs:(
+    def @init(self,*values,**names):(
+        self.values=values
+        self.names=names
+    )
+)
+received=ConstructorArgs(*[1,2],third=3)
+assert(received.values==(1,2) and received.names=={"third":3})
+options ConstructorMode:(on;off)
+type ModeConstructor:(
+    string description=""
+    def @init(self,ConstructorMode mode):(self.mode=mode)
+)
+assert(ModeConstructor(<on>).mode==ModeConstructor(*[<on>]).mode)
+
+type BrokenProperty:(
+    @property
+    def value(self):(raise TypeError("getter failed"))
+)
+int errors=0
+try:(getattr(BrokenProperty(),"value",9))
+except TypeError:(errors+=1)
+try:(hasattr(BrokenProperty(),"value"))
+except TypeError:(errors+=1)
+assert(errors==2 and getattr(BrokenProperty(),"missing",9)==9)
+type ExplicitMissing:(
+    def @getattribute(self,name):(raise AttributeError(name))
+    def @getattr(self,name):(
+        if name=="fallback":(return 7)
+        raise AttributeError(name)
+    )
+)
+assert(ExplicitMissing().fallback==7 and not hasattr(ExplicitMissing(),"absent"))
+assert(getattr(ExplicitMissing(),"absent",5)==5)
+type SentinelItems:(def @getitem(self,key):(return NotImplemented))
+assert(SentinelItems()[0] is NotImplemented)
+assert(type(Generic.@module) is string and opt_dir(Generic,"@mro")==[])
+int invalid_names=0
+try:(type("Invalid",(),{"@ordinary":lambda self:null}))
+except SyntaxError:(invalid_names+=1)
+assert(invalid_names==1)
+
+type Cycle:(any self=null)
+cycle=Cycle()
+cycle.self=cycle
+assert("recursive" in string(cycle))
+
+type Hooked:(
+    registrations=[]
+    def @init_subclass(cls):(append(Hooked.registrations,cls.@name))
+)
+runtime_child=type("RuntimeChild",(Hooked,),{})
+assert(Hooked.registrations==["RuntimeChild"])
+assert(Generic.@class is type and "@mro" in dir(Generic))
+print("Type conversions passed.")

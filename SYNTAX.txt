@@ -1,4 +1,4 @@
-OAKSCRIPT 0.8.2 - SYNTAX AND BUILT-IN REFERENCE
+OAKSCRIPT 0.9.0 - SYNTAX AND BUILT-IN REFERENCE
 ============================================
 
 This describes the implemented Windows x64 runner, not planned features.
@@ -528,21 +528,174 @@ END EXAMPLE
     schema Name from BaseSchema:(TYPE additional = DEFAULT)
     readonly TYPE field = DEFAULT
 
-Newlines or semicolons separate fields. Fields are ordered and typed.
-Types are nominal: separate declarations define distinct types.
-Schemas supply reusable fields and are also constructible as records.
-from in a type/schema declaration requires a schema, not class inheritance.
-Duplicate field names fail. readonly fields reject writes after construction.
-Constructors accept positional arguments or one tuple. Omitted trailing fields
-must have defaults. Default expressions run for each instance in the declaration
-scope; they cannot refer to the instance's fields. Mutable defaults are fresh.
-An existing instance passed to its own constructor is returned unchanged.
-Records share references. They can store function values in any fields and call
-them as object.function(...). These functions receive only the arguments you
-pass; there is no implicit self parameter. A nested function can capture its
-own record to provide an instance-specific operation. See record-functions.oak.
-There is no class inheritance, method declaration syntax, generics or record
-operator overloading; schemas compose fields instead.
+Newlines or semicolons separate fields and members. Types are nominal reference
+objects. Typed fields retain validation; readonly fields allow initialization
+but reject later writes. Schemas supply reusable typed fields. A schema may
+inherit schemas; a type may inherit types and schemas. Base names must already
+be declared or selectively imported (including import aliases).
+    type Child from Parent:(...)
+    type Child from Parent, Mixin:(...)
+    type Child(Parent, Mixin):(...)
+Multiple inheritance uses C3 method resolution order. Inconsistent orders and
+duplicate bases fail. Every type ultimately inherits the built-in object.
+Methods override inherited methods. Compatible ordinary typed field overrides
+are allowed; duplicate inherited schema fields cannot be redeclared.
+
+BEGIN EXAMPLE: Types with methods and constructors
+type Counter:(
+    int value=0
+    label="counter"                  \ shared class attribute
+    def @init(self,int start=0):(
+        self.value=start
+    )
+    def increase(self,int amount=1):(
+        self.value+=amount
+        return self.value
+    )
+    def @repr(self):(
+        return "Counter("+string(self.value)+")"
+    )
+    def @add(self,other):(
+        return Counter(self.value+other.value)
+    )
+)
+a=Counter(2)
+b=Counter(start=3)
+print(a.increase(),repr(a+b))
+\ Output: 3 Counter(6)
+END EXAMPLE
+
+Methods declared with def receive the instance as their first parameter, named
+self by convention. Bound methods retain their original receiver when stored.
+Counter.increase(a,2) explicitly calls the unbound method. Existing callable
+typed fields keep their original behavior: no self is automatically added.
+Methods accept defaults, keyword-only arguments, *args, **kwargs, closures,
+decorators and generators using the ordinary function rules.
+
+Without @init, constructors accept positional/keyword fields or one tuple;
+omitted fields need defaults, and conversion of an existing compatible instance
+returns it unchanged. Field defaults evaluate freshly for each instance in the
+declaration's lexical scope. With @init, arguments bind to that method instead;
+all required typed fields must be initialized and @init must return null.
+@new(cls,...) can allocate using object.@new(cls) or new_instance(cls); an
+unrelated return value skips @init. Constructor defaults and class attributes
+are separate: typed list fields get fresh lists; untyped class lists are shared.
+Instance attributes may be added dynamically. Setting an ordinary class
+attribute on an instance shadows it; del reveals the class value again.
+
+Decorators for method binding and properties:
+    @staticmethod                   no automatic self or cls argument
+    def helper(value):(...)
+    @classmethod                    receives the actual derived type as cls
+    def make(cls,value):(...)
+    @property                       getter invoked by instance.attribute
+    def amount(self):(...)
+    @amount.setter
+    def amount(self,value):(...)
+    @amount.deleter
+    def amount(self):(...)
+Getter-only properties are read-only. Properties and data descriptors take
+precedence over instance dictionary entries. Nested type/schema declarations
+inside a type are supported. A string literal in the type body sets its docstring.
+Untyped name=value entries declare class attributes. Arbitrary executable
+control flow in a type body is not supported.
+
+super() inside an instance/class method follows C3 after its declaring type,
+including inherited generators. super(Type,receiver) is the explicit form.
+    type Child from Counter:(
+        def @init(self,start):(
+            super().@init(start)
+        )
+        def increase(self,amount=1):(
+            return super().increase(amount*2)
+        )
+    )
+
+Special method declarations use def @name(self,...):(...). @ is forbidden in
+ordinary function names and nested regular-function declarations. Old dunder
+method declarations inside a type are rejected; module __main__, __init__ and
+__dispose__ lifecycle names remain unchanged. Decorators still use @ on their
+own line. @lthan is an alias for @lt; @gthan is an alias for @gt.
+
+Supported special methods and automatic triggers:
+    @new(cls,...), @init(self,...)    construction
+    @repr(self), @str(self)          repr(value), string(value), print
+    @format(self,spec)               "{:spec}".format(value)
+    @bytes(self), @int(self), @float(self), @complex(self)
+                                    explicit conversions (@complex: runner)
+    @index(self)                     integer indices, slices, range, int fallback
+    @bool(self), @len(self)          truth conversion, len; default object is true
+    @hash(self)                      hash(value), dictionary/set keys
+    @abs(self), @round(self), @floor(self), @ceil(self)
+                                    corresponding numeric built-ins
+    @call(self,...)                  instance(...), map/filter callbacks
+    @contains(self,item)             item in instance
+    @getitem(self,key)               instance[key]; slices pass a slice object
+    @setitem(self,key,value)         instance[key]=value or slice assignment
+    @delitem(self,key)               del instance[key] or del instance[slice]
+    @iter(self), @next(self)         iteration and next; raise StopIteration at end
+    @reversed(self)                  reversed(instance)
+    @enter(self), @exit(self,type,error,trace)
+                                    with; true exit result suppresses the error
+    @getattribute(self,name)         all ordinary instance attribute reads
+    @getattr(self,name)              fallback for missing ordinary attributes
+    @setattr(self,name,value), @delattr(self,name)
+                                    attribute writes/deletes
+    @get(self,instance,owner), @set(self,instance,value), @delete(self,instance)
+                                    custom descriptor stored on a type
+    @set_name(self,owner,name)       descriptor initialization
+    @init_subclass(cls)              called on creation of a derived type
+    @class_getitem(cls,key)          Type[key]; automatically a classmethod
+
+Operator hooks receive self and the other operand:
+    + @add       - @sub       * @mul        / @truediv     // @floordiv
+    % @mod       ** @pow     & @and        | @or          ^ @xor
+    << @lshift   >> @rshift
+Prefix r gives the reflected version: @radd, @rsub, @rmul, @rtruediv,
+@rfloordiv, @rmod, @rpow, @rand, @ror, @rxor, @rlshift, @rrshift.
+Prefix i gives compound assignment hooks: @iadd, @isub, @imul, @itruediv,
+@ifloordiv, @imod, @ipow, @iand, @ior, @ixor, @ilshift, @irshift.
+An absent in-place hook falls back to the ordinary operator. Return
+NotImplemented to try the other operand. Derived reflected overrides take
+priority over base forward methods. Unary +, -, ~ use @pos, @neg, @invert.
+Comparisons ==, !=, <, <=, >, >= use @eq, @ne, @lt, @le, @gt, @ge.
+The word operators and/or stay short-circuit Boolean operators; @and/@or are
+for &/|. Defining @eq without @hash makes an object unhashable. Special dispatch
+looks on the type, rather than a dynamic instance override or @getattr.
+
+Reflection and construction helpers:
+    type(value)                     actual type constructor
+    type(name,tuple_of_bases,dict)   dynamically create a type; keys may be @names
+    object                          built-in root type
+    isinstance(value,type_or_tuple), issubclass(type,type_or_tuple)
+    repr(value), hash(value), super(), super(type,receiver)
+    getattr(value,name[,default]), hasattr(value,name)
+    setattr(value,name,new_value), delattr(value,name)
+    vars(value)                     live instance dictionary/read-only type view
+    dir(value)                      sorted fields, dynamic attrs, methods, metadata
+    opt_dir(value,"attribute")      allowed option names; [] for ordinary members
+    slice(stop), slice(start,stop[,step])
+                                    .start/.stop/.step; immutable slice descriptor
+    new_instance(type)              allocate/default fields without running @init
+    object_getattr(value,name), object_setattr(value,name,new_value)
+    object_delattr(value,name)      bypass custom attribute hooks
+    staticmethod(fn), classmethod(fn), property(getter)
+                                    descriptor values for dynamic type dictionaries
+Missing object members raise AttributeError. getattr defaults and hasattr
+suppress AttributeError; other getter errors propagate. Type namespace views
+are read-only; setattr changes class members. Typed/readonly field checks still
+apply to instance dictionary mutations and hook-bypassing helpers.
+    instance.@class                 its type constructor
+    instance.@dict                  live instance dictionary
+    Type.@class                     built-in type constructor
+    Type.@name, Type.@qualname, Type.@module, Type.@doc
+    Type.@bases, Type.@mro           tuples of actual type constructors
+    Type.@dict                      read-only namespace view
+@name and @qualname currently report the declared name; they do not encode
+nested lexical names. type() has no custom metaclass argument. Built-in type
+subclassing, @slots, automatic finalizers/weak references, async methods and
+structural class-pattern matching are not implemented. See examples/type-classes.oak,
+type-protocols.oak, type-inheritance.oak, type-reflection.oak and type-conversions.oak.
 
     options Name:(first;second)
     options Name:(first, second)
@@ -1639,6 +1792,7 @@ Exception constructors accept an optional message:
     RuntimeError([message])
     ValueError([message])
     TypeError([message])
+    AttributeError([message])
     ZeroDivisionError([message])
     OverflowError([message])
     KeyError([message])
