@@ -1,0 +1,20 @@
+\ A record can hold variables and functions. The closure keeps its own object.
+type Counter:(int value=0;any increment=null)
+
+def make_counter(): (
+    Counter self=Counter()
+    def increment(): (
+        self.value+=1
+        return self.value
+    )
+    self.increment=increment
+    return self
+)
+
+counter=make_counter()
+other=make_counter()
+print(counter.increment())
+print(counter.increment())
+print(counter.value)
+assert(counter.value==2 and other.value==0)
+assert(other.increment()==1 and counter.value==2)

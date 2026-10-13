@@ -1,6 +1,6 @@
 # Native compilation
 
-OakScript 0.8.1 compiles CPU, 2D/3D graphics, audio and GPU compute programs to
+OakScript 0.8.2 compiles CPU, 2D/3D graphics, audio and GPU compute programs to
 standalone Windows x64 machine code.
 
 ```powershell
@@ -35,7 +35,8 @@ beside it. Failed checks/compiler invocations preserve an existing output EXE.
 GPU shader builds cache the compiled SPIRV-Cross support object under
 `%LOCALAPPDATA%/OakScript/native-cache`; the cache key includes source bytes,
 compiler identity and build flags. This cache is used on the build machine only.
-For a manual rebuild, compile the emitted program with C++20, `-municode`, static
+For a manual rebuild, compile the emitted program with C++20, `-municode`,
+`-Wa,-mbig-obj` (large COFF objects for unoptimized graphics builds), static
 GCC/C++ runtime flags, and the emitted `spirv_cross.cpp`, `spirv_parser.cpp`,
 `spirv_cross_parsed_ir.cpp`, `spirv_cfg.cpp`, `spirv_glsl.cpp` when present.
 Graphics links `opengl32`, `gdi32`, `user32`; audio links `winmm`.
@@ -60,6 +61,14 @@ The distribution includes GCC, MinGW and vendored dependency license notices.
   loops lower to native loop counters.
 - Nominal records, per-instance defaults, readonly/typed fields, nested tuple
   initialization, attribute schemas, extensible nominal option sets and aliases.
+- `dir(value)` and `opt_dir(value,"attribute")` reflection. Option inspection
+  uses the same built-in attribute schemas as the runner and includes inherited
+  fields, extended custom option sets and typed module exports. It returns sorted
+  names without invoking attribute getters; ordinary attributes return `[]` and
+  unknown attributes raise `TypeError`. See [attribute options](../examples/attribute-options.oak).
+  Records can store functions with per-instance lexical state; see
+  [record functions](../examples/record-functions.oak). Automatic method/self
+  binding and Python-style class inheritance are not implemented.
 - First-class, recursive, nested functions; retained lexical closures; lambdas;
   decorators; defaults evaluated once; keyword-only parameters; typed `*args`
   and `**kwargs`; positional and keyword expansion.
