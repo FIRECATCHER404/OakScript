@@ -4,6 +4,8 @@ OakScript (Oak) is a programming language with a portable Windows x64 file runne
 
 Read [SYNTAX.txt](SYNTAX.txt) for the complete implemented syntax, every built-in function and resource attribute, and runnable examples.
 
+The separate [OakBoot 0.1.0 preview](docs/OAKBOOT.md) compiles an Oak subset into OS-free x64 UEFI programs with embedded assets and CPU framebuffer graphics. Its Windows compiler ZIP is an additional asset on the current release. PS/2 held-key input and PC-speaker tones are implemented; GPU acceleration, native USB HID state handling, general audio, full language parity and physical motherboard validation are still missing.
+
 ## Current features
 
 - Types with bound methods, properties, inheritance, `super()`, `def @init(self,...)`, operators and reflection in the runner and native compiler. See [type classes](examples/type-classes.oak).
