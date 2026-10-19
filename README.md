@@ -4,7 +4,7 @@ OakScript (Oak) is a programming language with a portable Windows x64 file runne
 
 Read [SYNTAX.txt](SYNTAX.txt) for the complete implemented syntax, every built-in function and resource attribute, and runnable examples.
 
-The separate [OakBoot 0.2.0 preview](docs/OAKBOOT.md) compiles an Oak subset into OS-free x64 UEFI programs with embedded assets and CPU framebuffer graphics. Its Windows compiler ZIP is an additional asset on the current release. Version 0.2.0 supports the unchanged Cubes Game TI source, including its imports, collections, text and PS/2 mouse input. PS/2 held-key input and PC-speaker tones are implemented; GPU acceleration, native USB HID state handling, general audio, full language parity and physical motherboard validation are still missing.
+The separate [OakBoot 0.2.1 preview](docs/OAKBOOT.md) compiles an Oak subset into OS-free x64 UEFI programs with embedded assets and CPU framebuffer graphics. Its Windows compiler ZIP is an additional asset on the current release. Version 0.2.0 supports the unchanged Cubes Game TI source, including its imports, collections, text and PS/2 mouse input. PS/2 held-key input and PC-speaker tones are implemented; GPU acceleration, native USB HID state handling, general audio, full language parity and physical motherboard validation are still missing.
 
 ## Current features
 

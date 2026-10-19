@@ -1,8 +1,8 @@
-# OakBoot 0.2.0 preview
+# OakBoot 0.2.1 preview
 
 OakBoot is a separate Windows EXE that compiles an OakScript subset into native x64 UEFI machine code with its runtime and assets in one `.efi`. It can also write a partitioned FAT32 boot-image file. The boot machine needs no OS, OakScript, .NET or runtime DLLs. The compiler uses installed MinGW-w64 x64 GCC.
 
-Download the separate `OakBoot-0.2.0-win-x64.zip` asset from the [OakScript release](https://github.com/FIRECATCHER404/OakScript/releases/tag/v0.9.0). It includes examples, demo images, a QEMU launcher, validation evidence and a complete support boundary.
+Download the separate `OakBoot-0.2.1-win-x64.zip` asset from the [OakScript release](https://github.com/FIRECATCHER404/OakScript/releases/tag/v0.9.0). It includes examples, demo images, a QEMU launcher, validation evidence and a complete support boundary.
 
 ```powershell
 .\oakboot.exe .\examples\boot-demo.oak -o demo.efi --image demo.img
@@ -14,3 +14,5 @@ Graphics use the CPU and firmware GOP framebuffer, preferring a monitor's EDID m
 See the [setup and support page](https://oakscript-project.github.io/reference/oakboot.html). The Windows runner and its existing `oakscript compile` target remain separate.
 
 Version 0.2.0 fixes Cubes Game TI compilation with selective/aliased imports, isolated module bindings, nested mutable lists, bytearrays, default arguments, TrueType text and PS/2 mouse input. The unchanged game passed movement, placement/removal, keyboard/mouse palette, simulation and collection-lifetime checks under QEMU. Use `oakboot.exe cubesgameti.oak --image cubesgameti.img --bare-metal --keyboard ps2` in its source directory.
+
+Version 0.2.1 fixes the QEMU launcher raw-format, serial-log and read-only-disk issues. It uses a temporary write overlay, preserves the input image, reports launch failures and rejects .efi files as disks. The actual PowerShell launcher is boot-tested with paths containing spaces and no startup warnings.
